@@ -1,106 +1,88 @@
-# GO-OPENAPI
+# go-openapi
 
-A from-scratch OpenAPI 3.0 document generation library for Go and Fiber.
+A framework-neutral OpenAPI 3.0 document generation library for Go.
 
-This project intentionally does **not** depend on any OpenAPI generator or schema-generation library. It implements:
+The main public package is:
 
-- A native Go model of the OpenAPI 3.0 document
-- Go `reflect`-based schema generation
-- Typed Fiber route registration
-- OpenAPI path, parameter, request-body, response, schema, component, and security generation
-- JSON document output
-- Basic semantic validation
+```text
+github.com/thebases/go-openapi/openapi
+```
 
-## Goal
+The shared docs-serving package still exists at `github.com/thebases/go-openapi/docs`, and the thin framework integration modules still exist under `integrations/*`, but callers can now use the `openapi` facade package as the primary entrypoint.
 
-Application code:
+## Core usage
 
 ```go
-openapi.GET(
-    api,
-    "/merchants/:id",
-    openapi.OperationConfig{
-        ID:      "getMerchant",
-        Summary: "Get merchant",
-        Tags:    []string{"Merchants"},
-    },
-    func(ctx fiber.Ctx, input GetMerchantInput) (Merchant, error) {
-        return Merchant{
-            ID:     input.ID,
-            Name:   "The Base Store",
-            Status: "active",
-        }, nil
-    },
+import (
+    "net/http"
+
+    openapi "github.com/thebases/go-openapi/openapi"
 )
+
+api := openapi.New(
+    openapi.WithTitle("Merchant API"),
+    openapi.WithDescription("Merchant management endpoints"),
+    openapi.WithVersion("1.0.0"),
+    openapi.WithServer("https://api.example.com", "Production"),
+)
+
+err := api.AddOperation(http.MethodGet, "/merchants/{id}", openapi.Operation{
+    OperationID: "getMerchant",
+    Summary:     "Get merchant",
+    Parameters: []openapi.ParameterOrReference{
+        openapi.PathParameter("id", openapi.StringSchema()),
+    },
+    Responses: map[string]openapi.ResponseOrReference{
+        "200": openapi.JSONResponse("Merchant returned", openapi.RefSchema("Merchant")),
+    },
+})
 ```
 
-Produces an OpenAPI 3.0 document and Swagger UI at:
+## Facade namespaces
 
-```text
-GET /docs
-GET /docs/openapi.json
+Docs:
+
+```go
+handler, err := openapi.Docs.Handler(openapi.DocsConfig{
+    Provider:    openapi.DocsSwagger,
+    Title:       "Merchant API",
+    DocumentURL: "/openapi.json",
+})
 ```
 
-## Design constraints
+Gin:
 
-- No dependency on `kin-openapi`
-- No dependency on `swaggo`
-- No dependency on `swaggest`
-- No dependency on `openapi3gen`
-- OpenAPI 3.0.x only in the initial implementation
-- JSON output first
-- Fiber integration kept separate from reflection and document modeling
-
-## Package layout
-
-```text
-openapi/
-├── api.go
-├── components.go
-├── document.go
-├── errors.go
-├── extension.go
-├── marshal.go
-├── operation.go
-├── parameter.go
-├── path.go
-├── reference.go
-├── reflector.go
-├── route.go
-├── schema.go
-├── security.go
-├── validate.go
-├── example/
-│   └── main.go
-├── architecture.md
-├── implementation-notes.md
-└── context.md
+```go
+err := openapi.Gin.GET(router, api, "/merchants/:id", operation, getMerchant)
+err = openapi.Gin.MountDocs(router, api, "/docs", "/openapi.json", openapi.DocsConfig{
+    Provider: openapi.DocsSwagger,
+    Title:    "Merchant API",
+})
 ```
 
-## Current implementation status
+Fiber:
 
-This ZIP is an implementation scaffold and reference design. It contains the core code required to continue development, but it has not been compiled against a pinned Fiber v3 release in this environment.
+```go
+err := openapi.Fiber.GET(app, api, "/merchants/:id", operation, getMerchant)
+```
 
-Before publishing a release:
+Chi:
 
-1. Pin the exact Fiber v3 version.
-2. Run `go mod tidy`.
-3. Fix any Fiber v3 API differences.
-4. Add unit tests.
-5. Add golden-file tests for generated OpenAPI JSON.
-6. Validate generated documents with an independent OpenAPI validator in CI.
+```go
+err := openapi.Chi.GET(router, api, "/merchants/{id}", operation, getMerchant)
+```
 
-## Recommended first release scope
+`openapi.docs` and `openapi.gin` are not valid Go syntax, so the facade uses exported namespace values: `openapi.Docs`, `openapi.Gin`, `openapi.Fiber`, and `openapi.Chi`.
 
-- OpenAPI 3.0.3
-- JSON document output
-- GET, POST, PUT, PATCH, DELETE
-- Path, query, header, and cookie parameters
-- JSON request bodies
-- JSON responses
-- Primitive, struct, slice, array, map, and `time.Time` reflection
-- Component schemas
-- Recursive schema support
-- Bearer authentication
-- Basic semantic validation
+## Examples
 
+Each example is a separate module:
+
+- `examples/fiber`
+- `examples/chi`
+- `examples/gin`
+
+## Current verification
+
+- `go test ./openapi ./core ./docs ./reflector ./validator` passes.
+- The nested integration/example modules still need their own `go.sum` written with `go mod tidy` or `go test ./...` in a network-enabled environment.
