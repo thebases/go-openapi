@@ -20,6 +20,11 @@ type ParameterOrReference struct {
 	Value *Parameter
 }
 
+type ExampleOrReference struct {
+	Ref   string
+	Value *Example
+}
+
 type RequestBodyOrReference struct {
 	Ref   string
 	Value *RequestBody
@@ -74,6 +79,10 @@ func (v ParameterOrReference) MarshalJSON() ([]byte, error) {
 	return marshalReferenceOrValue(v.Ref, v.Value)
 }
 
+func (v ExampleOrReference) MarshalJSON() ([]byte, error) {
+	return marshalReferenceOrValue(v.Ref, v.Value)
+}
+
 func (v RequestBodyOrReference) MarshalJSON() ([]byte, error) {
 	return marshalReferenceOrValue(v.Ref, v.Value)
 }
@@ -92,4 +101,12 @@ func SchemaRef(name string) *SchemaOrReference {
 
 func InlineSchema(schema *Schema) *SchemaOrReference {
 	return &SchemaOrReference{Value: schema}
+}
+
+func ExampleRef(name string) *ExampleOrReference {
+	return &ExampleOrReference{Ref: "#/components/examples/" + name}
+}
+
+func InlineExample(example *Example) *ExampleOrReference {
+	return &ExampleOrReference{Value: example}
 }

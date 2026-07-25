@@ -66,7 +66,8 @@ func New(options ...Option) *API {
 			},
 			Paths: map[string]*PathItem{},
 			Components: &Components{
-				Schemas: map[string]*SchemaOrReference{},
+				Schemas:  map[string]*SchemaOrReference{},
+				Examples: map[string]*ExampleOrReference{},
 			},
 		},
 		docsProvider: DocsSwagger,
@@ -162,6 +163,50 @@ func (api *API) RegisterSchema(name string, schema *SchemaOrReference) error {
 	}
 
 	api.doc.Components.Schemas[name] = schema
+	return nil
+}
+
+func (api *API) RegisterExample(name string, example *ExampleOrReference) error {
+	if strings.TrimSpace(name) == "" || example == nil {
+		return errors.New("openapi: example name and value are required")
+	}
+
+	api.mu.Lock()
+	defer api.mu.Unlock()
+
+	if api.doc.Components == nil {
+		api.doc.Components = &Components{Examples: map[string]*ExampleOrReference{}}
+	}
+	if api.doc.Components.Examples == nil {
+		api.doc.Components.Examples = map[string]*ExampleOrReference{}
+	}
+	if _, exists := api.doc.Components.Examples[name]; exists {
+		return fmt.Errorf("openapi: example %q already registered", name)
+	}
+
+	api.doc.Components.Examples[name] = example
+	return nil
+}
+
+func (api *API) RegisterSecurityScheme(name string, scheme *SecuritySchemeOrReference) error {
+	if strings.TrimSpace(name) == "" || scheme == nil {
+		return errors.New("openapi: security scheme name and value are required")
+	}
+
+	api.mu.Lock()
+	defer api.mu.Unlock()
+
+	if api.doc.Components == nil {
+		api.doc.Components = &Components{SecuritySchemes: map[string]*SecuritySchemeOrReference{}}
+	}
+	if api.doc.Components.SecuritySchemes == nil {
+		api.doc.Components.SecuritySchemes = map[string]*SecuritySchemeOrReference{}
+	}
+	if _, exists := api.doc.Components.SecuritySchemes[name]; exists {
+		return fmt.Errorf("openapi: security scheme %q already registered", name)
+	}
+
+	api.doc.Components.SecuritySchemes[name] = scheme
 	return nil
 }
 

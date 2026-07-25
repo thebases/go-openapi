@@ -2,6 +2,8 @@ package openapichi
 
 import (
 	"net/http"
+	"path"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	openapi "github.com/thebases/go-openapi/openapi"
@@ -9,6 +11,11 @@ import (
 
 func mountDocs(router chi.Router, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
 	router.Handle(documentPath, documentHandler)
+	if aliasPath := docsDocumentAliasPath(docsPath, documentPath); aliasPath != "" {
+		// Keep a docs-scoped alias for the default document URL so requests under
+		// /docs do not fall through to the docs asset handler and return 404.
+		router.Handle(aliasPath, documentHandler)
+	}
 	router.Handle(docsPath, docsHandler)
 	router.Handle(docsPath+"/*", docsHandler)
 	return nil
@@ -57,4 +64,19 @@ func DELETE(router chi.Router, api *openapi.API, spec openapi.RouteSpec, handler
 
 func MountDocs(router chi.Router, api *openapi.API, docsPath, documentPath string, config openapi.DocsConfig) error {
 	return docs.MountDocs(router, api, docsPath, documentPath, config)
+}
+
+func docsDocumentAliasPath(docsPath, documentPath string) string {
+	if documentPath != "/openapi.json" {
+		return ""
+	}
+	trimmedDocsPath := strings.TrimRight(docsPath, "/")
+	if trimmedDocsPath == "" || trimmedDocsPath == "/" {
+		return ""
+	}
+	aliasPath := trimmedDocsPath + "/" + path.Base(documentPath)
+	if aliasPath == documentPath {
+		return ""
+	}
+	return aliasPath
 }

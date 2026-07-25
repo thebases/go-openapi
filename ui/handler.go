@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -19,7 +20,7 @@ type documentSource interface {
 // fully embedded; Scalar uses checked-in templates plus CDN-hosted runtime
 // assets.
 //
-//go:embed theme/swagger/* theme/base/* theme/scalar/*
+//go:embed theme/swagger theme/base theme/scalar
 var uiFS embed.FS
 
 func DocumentHandler(source documentSource) http.Handler {
@@ -72,6 +73,9 @@ func DocsHandler(config Config) (http.Handler, error) {
 
 func render(config Config) (string, error) {
 	uiDir := resolveUIDir(config.Provider)
+	if config.Provider == Base {
+		return renderBase(config, uiDir)
+	}
 	if config.Provider == Scalar {
 		return renderScalar(config, uiDir)
 	}
@@ -118,6 +122,34 @@ func render(config Config) (string, error) {
 	return html.String(), nil
 }
 
+func renderBase(config Config, uiDir string) (string, error) {
+	indexTemplate, err := readUIAsset(uiDir, "index.html")
+	if err != nil {
+		return "", err
+	}
+
+	pageTemplate, err := template.New("base-page").Parse(indexTemplate)
+	if err != nil {
+		return "", err
+	}
+
+	page := basePageData{
+		Title:            config.Title,
+		DocumentURL:      config.DocumentURL,
+		AssetBasePath:    docsAssetBasePath(config.DocsPath),
+		DefaultLogo:      "img/logo.svg",
+		DefaultFavicon16: "img/favicon-16x16.png",
+		DefaultFavicon32: "img/favicon-32x32.png",
+	}
+
+	var html strings.Builder
+	if err := pageTemplate.Execute(&html, page); err != nil {
+		return "", err
+	}
+
+	return html.String(), nil
+}
+
 func renderScalar(config Config, uiDir string) (string, error) {
 	customCSS, err := readUIAsset(uiDir, "index.css")
 	if err != nil {
@@ -156,6 +188,15 @@ type swaggerPageData struct {
 	SwaggerBundle    template.JS
 	StandalonePreset template.JS
 	Initializer      template.JS
+}
+
+type basePageData struct {
+	Title            string
+	DocumentURL      string
+	AssetBasePath    string
+	DefaultLogo      string
+	DefaultFavicon16 string
+	DefaultFavicon32 string
 }
 
 type scalarPageData struct {
@@ -257,6 +298,14 @@ func scalarDocumentURL(docsPath, documentURL string) string {
 	return strings.Join(relative, "/")
 }
 
+func docsAssetBasePath(docsPath string) string {
+	cleaned := path.Clean("/" + docsPath)
+	if cleaned == "." || cleaned == "/" {
+		return ""
+	}
+	return cleaned
+}
+
 func splitURLPath(value string) []string {
 	if value == "" || value == "." {
 		return nil
@@ -276,6 +325,9 @@ func resolveUIRequest(r *http.Request, docsPath string) (string, bool) {
 	if r == nil || r.URL == nil {
 		return "", false
 	}
+	if strings.Contains(r.URL.Path, "..") {
+		return "..", true
+	}
 
 	cleanedPath := path.Clean("/" + r.URL.Path)
 	docsRoot := path.Clean("/" + docsPath)
@@ -294,23 +346,58 @@ func resolveUIRequest(r *http.Request, docsPath string) (string, bool) {
 	if assetName == "" {
 		return "", false
 	}
-	if strings.Contains(assetName, "/") {
-		return assetName, false
-	}
 	return assetName, true
 }
 
 func serveUIAsset(w http.ResponseWriter, assetName, uiDir string) bool {
-	raw, err := fs.ReadFile(uiFS, uiDir+"/"+assetName)
+	cleanedName, ok := sanitizeUIAssetPath(assetName)
+	if !ok {
+		return false
+	}
+
+	raw, err := fs.ReadFile(uiFS, uiDir+"/"+cleanedName)
 	if err != nil {
 		return false
 	}
 
-	contentType := mime.TypeByExtension(path.Ext(assetName))
+	contentType := uiAssetContentType(cleanedName)
 	if contentType == "" {
 		contentType = http.DetectContentType(raw)
 	}
 	w.Header().Set("Content-Type", contentType)
 	_, _ = w.Write(raw)
 	return true
+}
+func uiAssetContentType(assetName string) string {
+	// Embedded docs assets must use a deterministic JS MIME type because the Go
+	// extension registry can resolve .js differently per host OS, which breaks
+	// Base theme ES module loading when browsers receive text/plain.
+	switch path.Ext(assetName) {
+	case ".js", ".mjs":
+		return "application/javascript; charset=utf-8"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".html":
+		return "text/html; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	default:
+		return mime.TypeByExtension(path.Ext(assetName))
+	}
+}
+
+func sanitizeUIAssetPath(assetName string) (string, bool) {
+	cleaned := strings.TrimPrefix(path.Clean("/"+assetName), "/")
+	if cleaned == "" || cleaned == "." {
+		return "", false
+	}
+	if strings.HasPrefix(cleaned, "..") {
+		return "", false
+	}
+
+	parts := strings.Split(cleaned, "/")
+	if slices.Contains(parts, "..") {
+		return "", false
+	}
+	return cleaned, true
 }

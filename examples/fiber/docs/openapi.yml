@@ -1,0 +1,10 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Fiber Example API",
+    "description": "Fiber example API documentation loaded from a markdown file.\n",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {}
+}

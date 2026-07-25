@@ -1,19 +1,93 @@
-<!-- HTML for static distribution bundle build -->
-<!DOCTYPE html>
+﻿<!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <title>Open Api Document</title>
-    <link rel="stylesheet" type="text/css" href="./docs/swagger-ui.css" />
-    <link rel="stylesheet" type="text/css" href="./docs/index.css" />
-    <link rel="icon" type="image/png" href="./docs/favicon-32x32.png" sizes="32x32" />
-    <link rel="icon" type="image/png" href="./docs/favicon-16x16.png" sizes="16x16" />
-  </head>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{.Title}}</title>
+  <link rel="icon" type="image/png" href="{{.AssetBasePath}}/img/favicon-32x32.png" sizes="32x32" />
+  <link rel="icon" type="image/png" href="{{.AssetBasePath}}/img/favicon-16x16.png" sizes="16x16" />
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat-maia.cdn.min.css"
+    onerror="this.onerror=null;this.href='{{.AssetBasePath}}/css/basecoat-maia.cdn.min.css';"
+  />
+  <link rel="stylesheet" href="{{.AssetBasePath}}/css/app.css" />
+  <script>
+    window.__DOCS_DOCUMENT_URL__ = "{{.DocumentURL}}";
+  </script>
+</head>
+<body class="app-body">
+  <header class="app-header">
+    <div class="header-left">
+      <button id="sidebar-toggle" class="icon-button mobile-only" aria-label="Toggle sidebar" type="button">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <a href="#/introduction" class="brand-link" aria-label="The Base">
+        <img src="{{.AssetBasePath}}/img/logo.svg" alt="The Base" class="brand-logo" />
+      </a>
+      <!-- <nav class="header-nav" aria-label="Primary"> -->
+        <!-- <a href="#/introduction" class="header-link is-active">Document</a> -->
+        <!-- <a href="#/introduction" class="header-link" id="nav-doc-link">Base API</a> -->
+      <!-- </nav> -->
+    </div>
+    <div class="header-right">
+      <button id="btn-authorize" class="text-button" type="button" >
+        <span id="btn-authorize-label">Authorize</span>
+      </button>
+      <span id="spec-version" class="meta-pill"></span>
+      <!-- <a id="spec-source-link" class="text-button" href="https://petstore.swagger.io/v2/swagger.json" target="_blank" rel="noopener">
+        View spec
+      </a> -->
+      <button id="theme-setting" class="icon-button" type="button" aria-label="Switch to dark mode" title="Switch theme" aria-pressed="false">
+        <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v2.1"/><path d="M12 19.4v2.1"/><path d="m4.93 4.93 1.48 1.48"/><path d="m17.59 17.59 1.48 1.48"/><path d="M2.5 12h2.1"/><path d="M19.4 12h2.1"/><path d="m4.93 19.07 1.48-1.48"/><path d="m17.59 6.41 1.48-1.48"/></svg>
+      </button>
+    </div>
+  </header>
 
-  <body>
-    <div id="swagger-ui"></div>
-    <script src="./docs/swagger-ui-bundle.js" charset="UTF-8"> </script>
-    <script src="./docs/swagger-ui-standalone-preset.js" charset="UTF-8"> </script>
-    <script src="./docs/swagger-initializer.js" charset="UTF-8"> </script>
-  </body>
+  <dialog id="auth-dialog" class="dialog" aria-labelledby="auth-dialog-title" aria-describedby="auth-dialog-desc" onclick="if (event.target === this) this.close()">
+    <div class="auth-dialog-panel">
+      <header class="auth-dialog-header">
+        <h2 id="auth-dialog-title">Available authorizations</h2>
+        <p id="auth-dialog-desc" class="text-muted">Values are stored locally in your browser and applied to Try It requests.</p>
+      </header>
+      <section id="auth-dialog-body" class="auth-dialog-body"></section>
+      <footer class="auth-dialog-footer">
+        <button type="button" class="text-button" data-action="auth-cancel">Close</button>
+        <button type="button" class="solid-button" data-action="auth-save">Authorize</button>
+      </footer>
+      <button type="button" class="icon-button auth-dialog-close" aria-label="Close dialog" data-action="auth-cancel">&times;</button>
+    </div>
+  </dialog>
+
+  <div class="app-shell">
+    <aside id="sidebar" class="sidebar-shell" data-side="left" data-breakpoint="lg">
+      <!-- <div class="sidebar-head">
+        <span id="sidebar-title">Base Api</span>
+        <button class="icon-button sidebar-head-toggle" type="button" aria-label="Collapse sidebar" data-action="sidebar-close">
+          <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+      </div> -->
+      <nav class="sidebar-nav" aria-label="API navigation">
+        <div id="sidebar-groups" role="group" aria-labelledby="sidebar-title"></div>
+      </nav>
+      <!-- <div class="sidebar-foot">
+        <button class="sidebar-collapse" type="button" aria-label="Toggle sidebar" data-action="sidebar-close">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 8 12 13 7"/><polyline points="19 17 14 12 19 7"/></svg>
+        </button>
+      </div> -->
+    </aside>
+
+    <main class="workspace">
+      <section id="doc-main" class="doc-main">
+        <div class="empty-state">Loading API documentation&hellip;</div>
+      </section>
+      <aside id="tryit-panel" class="tryit-panel"></aside>
+    </main>
+  </div>
+
+  <script src="{{.AssetBasePath}}/js/all.min.js" defer></script>
+  <script src="{{.AssetBasePath}}/js/openapi.js" defer></script>
+  <script src="{{.AssetBasePath}}/js/snippet.js" defer></script>
+  <script src="{{.AssetBasePath}}/js/app.js" defer></script>
+</body>
 </html>

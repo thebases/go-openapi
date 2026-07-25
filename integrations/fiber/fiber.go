@@ -3,6 +3,8 @@ package openapifiber
 import (
 	"net/http"
 	"net/url"
+	"path"
+	"strings"
 
 	"github.com/gofiber/fiber/v3"
 	openapi "github.com/thebases/go-openapi/openapi"
@@ -16,9 +18,16 @@ func mountDocs(router fiber.Router, docsPath, documentPath string, docsHandler, 
 		recorder := &fiberHTTPWriter{header: http.Header{}}
 		handler.ServeHTTP(recorder, request)
 		for key, values := range recorder.header {
-			for _, value := range values {
-				c.Append(key, value)
+			if len(values) == 0 {
+				continue
 			}
+			if strings.EqualFold(key, "Set-Cookie") {
+				for _, value := range values {
+					c.Append(key, value)
+				}
+				continue
+			}
+			c.Set(key, values[0])
 		}
 		return c.Status(recorder.statusOrOK()).Send(recorder.body)
 	}
@@ -26,6 +35,13 @@ func mountDocs(router fiber.Router, docsPath, documentPath string, docsHandler, 
 	router.Get(documentPath, func(c fiber.Ctx) error {
 		return serveHTTP(c, documentHandler)
 	})
+	if aliasPath := docsDocumentAliasPath(docsPath, documentPath); aliasPath != "" {
+		// Keep a docs-scoped alias for the default document URL so requests under
+		// /docs do not fall through to the docs asset handler and return 404.
+		router.Get(aliasPath, func(c fiber.Ctx) error {
+			return serveHTTP(c, documentHandler)
+		})
+	}
 	router.Get(docsPath, func(c fiber.Ctx) error {
 		return serveHTTP(c, docsHandler)
 	})
@@ -108,4 +124,19 @@ func (w *fiberHTTPWriter) statusOrOK() int {
 		return http.StatusOK
 	}
 	return w.status
+}
+
+func docsDocumentAliasPath(docsPath, documentPath string) string {
+	if documentPath != "/openapi.json" {
+		return ""
+	}
+	trimmedDocsPath := strings.TrimRight(docsPath, "/")
+	if trimmedDocsPath == "" || trimmedDocsPath == "/" {
+		return ""
+	}
+	aliasPath := trimmedDocsPath + "/" + path.Base(documentPath)
+	if aliasPath == documentPath {
+		return ""
+	}
+	return aliasPath
 }

@@ -132,7 +132,7 @@ func TestPrepareDocsMountUsesAPIStyleByDefault(t *testing.T) {
 	docsHandler.ServeHTTP(recorder, request)
 
 	body := recorder.Body.String()
-	if !strings.Contains(body, `url: "/openapi.json"`) {
+	if !strings.Contains(body, `window.__DOCS_DOCUMENT_URL__ = `) || !strings.Contains(body, `openapi.json`) {
 		t.Fatalf("expected inherited docs style to keep configured document URL, got %q", body)
 	}
 	if !strings.Contains(body, "<title>Merchant API</title>") {

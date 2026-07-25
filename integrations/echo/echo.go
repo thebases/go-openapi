@@ -2,6 +2,8 @@ package openapiecho
 
 import (
 	"net/http"
+	"path"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	openapi "github.com/thebases/go-openapi/openapi"
@@ -14,6 +16,11 @@ type Router interface {
 
 func mountDocs(router Router, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
 	router.GET(documentPath, echo.WrapHandler(documentHandler))
+	if aliasPath := docsDocumentAliasPath(docsPath, documentPath); aliasPath != "" {
+		// Keep a docs-scoped alias for the default document URL so requests under
+		// /docs do not fall through to the docs asset handler and return 404.
+		router.GET(aliasPath, echo.WrapHandler(documentHandler))
+	}
 	router.GET(docsPath, echo.WrapHandler(docsHandler))
 	router.GET(docsPath+"/*", echo.WrapHandler(docsHandler))
 	return nil
@@ -59,4 +66,19 @@ func DELETE(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ..
 
 func MountDocs(router Router, api *openapi.API, docsPath, documentPath string, config openapi.DocsConfig) error {
 	return docs.MountDocs(router, api, docsPath, documentPath, config)
+}
+
+func docsDocumentAliasPath(docsPath, documentPath string) string {
+	if documentPath != "/openapi.json" {
+		return ""
+	}
+	trimmedDocsPath := strings.TrimRight(docsPath, "/")
+	if trimmedDocsPath == "" || trimmedDocsPath == "/" {
+		return ""
+	}
+	aliasPath := trimmedDocsPath + "/" + path.Base(documentPath)
+	if aliasPath == documentPath {
+		return ""
+	}
+	return aliasPath
 }

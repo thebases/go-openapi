@@ -16,13 +16,13 @@ Example modules under `examples/*` are not release artifacts.
 
 ## Tagging strategy
 
-- Root module tags use the normal module tag form, for example `v0.1.0`.
+- Root module tags use the normal module tag form, for example `v0.0.1`.
 - Nested integration modules must use module-path-prefixed tags, for example:
-  - `integrations/chi/v0.1.0`
-  - `integrations/echo/v0.1.0`
-  - `integrations/fiber/v0.1.0`
-  - `integrations/gin/v0.1.0`
-  - `integrations/iris/v0.1.0`
+  - `integrations/chi/v0.0.1`
+  - `integrations/echo/v0.0.1`
+  - `integrations/fiber/v0.0.1`
+  - `integrations/gin/v0.0.1`
+  - `integrations/iris/v0.0.1`
 
 Use the same semantic version across the root and supported integration modules for the first public release unless maintainers intentionally want separate version streams.
 
@@ -42,7 +42,7 @@ Validate the root module from a clean temporary directory:
 New-Item -ItemType Directory -Force tmp-root | Out-Null
 Set-Location tmp-root
 go mod init example.com/root-check
-go get github.com/thebases/go-openapi@v0.1.0
+go get github.com/thebases/go-openapi@v0.0.1
 ```
 
 Validate each supported integration module in its own clean temporary module:
@@ -51,7 +51,7 @@ Validate each supported integration module in its own clean temporary module:
 New-Item -ItemType Directory -Force tmp-chi | Out-Null
 Set-Location tmp-chi
 go mod init example.com/chi-check
-go get github.com/thebases/go-openapi/integrations/chi@integrations/chi/v0.1.0
+go get github.com/thebases/go-openapi/integrations/chi@integrations/chi/v0.0.1
 ```
 
 Repeat the same pattern for `echo`, `fiber`, `gin`, and `iris`.
