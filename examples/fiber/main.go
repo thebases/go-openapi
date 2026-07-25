@@ -12,11 +12,13 @@ func main() {
 	app := fiber.New()
 	doc := openapi.New(
 		openapi.WithTitle("Fiber Example API"),
+		openapi.WithDescription("descriptions/api.md"),
 		openapi.WithVersion("1.0.0"),
-		openapi.WithDocStyle(openapi.DocsSwagger),
+		openapi.WithDocStyle(openapi.DocsScalar),
 	)
 	if err := doc.RegisterSchema("Merchant", openapi.InlineSchema(&openapi.Schema{
-		Type: "object",
+		Type:        "object",
+		Description: "descriptions/merchant-schema.md",
 		Properties: map[string]*openapi.SchemaOrReference{
 			"id":   openapi.StringSchema(),
 			"name": openapi.StringSchema(),
@@ -29,11 +31,12 @@ func main() {
 	err := api.GET(app, doc, openapi.Route("/merchants/:id", openapi.Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
+		Description: "descriptions/merchant-operation.md",
 		Parameters: []openapi.ParameterOrReference{
-			openapi.PathParameter("id", openapi.StringSchema()),
+			{Value: &openapi.Parameter{Name: "id", In: "path", Required: true, Description: "descriptions/merchant-id.md", Schema: openapi.StringSchema()}},
 		},
 		Responses: map[string]openapi.ResponseOrReference{
-			"200": openapi.JSONResponse("Merchant returned", openapi.RefSchema("Merchant")),
+			"200": openapi.JSONResponse("descriptions/merchant-response.md", openapi.RefSchema("Merchant")),
 		},
 	}), func(c fiber.Ctx) error {
 		return c.JSON(fiber.Map{"id": c.Params("id"), "name": "The Base"})

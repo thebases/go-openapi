@@ -101,7 +101,7 @@ func render(config Config) (string, error) {
 	// per request to keep the selected UI pointed at the caller's document route.
 	initializer = strings.Replace(initializer, "https://petstore.swagger.io/v2/swagger.json", config.DocumentURL, 1)
 
-	page := docsPageData{
+	page := swaggerPageData{
 		Title:            template.HTMLEscapeString(config.Title),
 		SwaggerCSS:       template.CSS(swaggerCSS),
 		CustomCSS:        template.CSS(customCSS),
@@ -111,7 +111,7 @@ func render(config Config) (string, error) {
 	}
 
 	var html strings.Builder
-	if err := docsPageTemplate.Execute(&html, page); err != nil {
+	if err := swaggerPageTemplate.Execute(&html, page); err != nil {
 		return "", err
 	}
 
@@ -149,7 +149,7 @@ func renderScalar(config Config, uiDir string) (string, error) {
 	return html.String(), nil
 }
 
-type docsPageData struct {
+type swaggerPageData struct {
 	Title            string
 	SwaggerCSS       template.CSS
 	CustomCSS        template.CSS
@@ -166,7 +166,9 @@ type scalarPageData struct {
 	InitializerJS template.JS
 }
 
-var docsPageTemplate = template.Must(template.New("docs-page").Parse(`<!doctype html>
+// swaggerPageTemplate remains the inline HTML shell for Swagger-based providers.
+// Scalar intentionally uses its own template and does not share this page shell.
+var swaggerPageTemplate = template.Must(template.New("swagger-page").Parse(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">

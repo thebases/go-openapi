@@ -12,11 +12,13 @@ func main() {
 	router := gin.New()
 	docs := openapi.New(
 		openapi.WithTitle("Gin Example API"),
+		openapi.WithDescription("descriptions/api.md"),
 		openapi.WithVersion("1.0.0"),
 		openapi.WithDocStyle(openapi.DocsSwagger),
 	)
 	if err := docs.RegisterSchema("Merchant", openapi.InlineSchema(&openapi.Schema{
-		Type: "object",
+		Type:        "object",
+		Description: "descriptions/merchant-schema.md",
 		Properties: map[string]*openapi.SchemaOrReference{
 			"id":   openapi.StringSchema(),
 			"name": openapi.StringSchema(),
@@ -29,11 +31,12 @@ func main() {
 	err := api.GET(router, docs, openapi.Route("/merchants/:id", openapi.Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
+		Description: "descriptions/merchant-operation.md",
 		Parameters: []openapi.ParameterOrReference{
-			openapi.PathParameter("id", openapi.StringSchema()),
+			{Value: &openapi.Parameter{Name: "id", In: "path", Required: true, Description: "descriptions/merchant-id.md", Schema: openapi.StringSchema()}},
 		},
 		Responses: map[string]openapi.ResponseOrReference{
-			"200": openapi.JSONResponse("Merchant returned", openapi.RefSchema("Merchant")),
+			"200": openapi.JSONResponse("descriptions/merchant-response.md", openapi.RefSchema("Merchant")),
 		},
 	}), func(c *gin.Context) {
 		c.JSON(200, gin.H{"id": c.Param("id"), "name": "The Base"})

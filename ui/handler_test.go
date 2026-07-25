@@ -49,6 +49,9 @@ func TestDocsHandlerSupportsBaseUI(t *testing.T) {
 	if !strings.Contains(body, "<title>Merchant API</title>") {
 		t.Fatalf("expected configured title, got %q", body)
 	}
+	if !strings.Contains(body, "base-docs-shell") || !strings.Contains(body, "#operation-") {
+		t.Fatalf("expected base UI layout script, got %q", body)
+	}
 }
 
 func TestDocsHandlerSupportsScalarProvider(t *testing.T) {
