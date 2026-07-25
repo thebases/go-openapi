@@ -1,4 +1,4 @@
-package reflector
+package openapi
 
 import (
 	"encoding"
@@ -7,30 +7,28 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	spec "github.com/thebases/go-openapi/openapi"
 )
 
 var (
-	timeType          = reflect.TypeOf(time.Time{})
-	textUnmarshalerTy = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+	reflectorTimeType          = reflect.TypeOf(time.Time{})
+	reflectorTextUnmarshalerTy = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
 )
 
 type Reflector struct {
-	Components map[string]*spec.SchemaOrReference
+	Components map[string]*SchemaOrReference
 	Visiting   map[reflect.Type]bool
 	Names      map[reflect.Type]string
 }
 
-func New() *Reflector {
+func NewReflector() *Reflector {
 	return &Reflector{
-		Components: make(map[string]*spec.SchemaOrReference),
+		Components: make(map[string]*SchemaOrReference),
 		Visiting:   make(map[reflect.Type]bool),
 		Names:      make(map[reflect.Type]string),
 	}
 }
 
-func (r *Reflector) ReflectType(t reflect.Type) (*spec.SchemaOrReference, error) {
+func (r *Reflector) ReflectType(t reflect.Type) (*SchemaOrReference, error) {
 	if t == nil {
 		return nil, fmt.Errorf("cannot reflect nil type")
 	}
@@ -43,54 +41,54 @@ func (r *Reflector) ReflectType(t reflect.Type) (*spec.SchemaOrReference, error)
 
 	if schema := specialSchema(t); schema != nil {
 		schema.Nullable = nullable
-		return spec.InlineSchema(schema), nil
+		return InlineSchema(schema), nil
 	}
 
-	var ref *spec.SchemaOrReference
+	var ref *SchemaOrReference
 	var err error
 
 	switch t.Kind() {
 	case reflect.Bool:
-		ref = spec.InlineSchema(&spec.Schema{Type: "boolean"})
+		ref = InlineSchema(&Schema{Type: "boolean"})
 	case reflect.String:
-		ref = spec.InlineSchema(&spec.Schema{Type: "string"})
+		ref = InlineSchema(&Schema{Type: "string"})
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32:
-		ref = spec.InlineSchema(&spec.Schema{Type: "integer", Format: "int32"})
+		ref = InlineSchema(&Schema{Type: "integer", Format: "int32"})
 	case reflect.Int64:
-		ref = spec.InlineSchema(&spec.Schema{Type: "integer", Format: "int64"})
+		ref = InlineSchema(&Schema{Type: "integer", Format: "int64"})
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
 		min := float64(0)
-		ref = spec.InlineSchema(&spec.Schema{Type: "integer", Format: "int32", Minimum: &min})
+		ref = InlineSchema(&Schema{Type: "integer", Format: "int32", Minimum: &min})
 	case reflect.Uint64:
 		min := float64(0)
-		ref = spec.InlineSchema(&spec.Schema{Type: "integer", Format: "int64", Minimum: &min})
+		ref = InlineSchema(&Schema{Type: "integer", Format: "int64", Minimum: &min})
 	case reflect.Float32:
-		ref = spec.InlineSchema(&spec.Schema{Type: "number", Format: "float"})
+		ref = InlineSchema(&Schema{Type: "number", Format: "float"})
 	case reflect.Float64:
-		ref = spec.InlineSchema(&spec.Schema{Type: "number", Format: "double"})
+		ref = InlineSchema(&Schema{Type: "number", Format: "double"})
 	case reflect.Slice:
 		if t.Elem().Kind() == reflect.Uint8 {
-			ref = spec.InlineSchema(&spec.Schema{Type: "string", Format: "byte"})
+			ref = InlineSchema(&Schema{Type: "string", Format: "byte"})
 		} else {
-			var item *spec.SchemaOrReference
+			var item *SchemaOrReference
 			item, err = r.ReflectType(t.Elem())
 			if err == nil {
-				ref = spec.InlineSchema(&spec.Schema{Type: "array", Items: item})
+				ref = InlineSchema(&Schema{Type: "array", Items: item})
 			}
 		}
 	case reflect.Array:
-		var item *spec.SchemaOrReference
+		var item *SchemaOrReference
 		item, err = r.ReflectType(t.Elem())
 		if err == nil {
 			length := uint64(t.Len())
-			ref = spec.InlineSchema(&spec.Schema{Type: "array", Items: item, MinItems: &length, MaxItems: &length})
+			ref = InlineSchema(&Schema{Type: "array", Items: item, MinItems: &length, MaxItems: &length})
 		}
 	case reflect.Map:
 		ref, err = r.reflectMap(t)
 	case reflect.Struct:
 		ref, err = r.reflectStruct(t)
 	case reflect.Interface:
-		ref = spec.InlineSchema(&spec.Schema{})
+		ref = InlineSchema(&Schema{})
 	default:
 		err = fmt.Errorf("unsupported Go type %s", t)
 	}
@@ -103,9 +101,9 @@ func (r *Reflector) ReflectType(t reflect.Type) (*spec.SchemaOrReference, error)
 		if ref.Value != nil {
 			ref.Value.Nullable = true
 		} else if ref.Ref != "" {
-			ref = spec.InlineSchema(&spec.Schema{
+			ref = InlineSchema(&Schema{
 				Nullable: true,
-				AllOf:    []*spec.SchemaOrReference{{Ref: ref.Ref}},
+				AllOf:    []*SchemaOrReference{{Ref: ref.Ref}},
 			})
 		}
 	}
@@ -113,17 +111,17 @@ func (r *Reflector) ReflectType(t reflect.Type) (*spec.SchemaOrReference, error)
 	return ref, nil
 }
 
-func specialSchema(t reflect.Type) *spec.Schema {
-	if t == timeType {
-		return &spec.Schema{Type: "string", Format: "date-time"}
+func specialSchema(t reflect.Type) *Schema {
+	if t == reflectorTimeType {
+		return &Schema{Type: "string", Format: "date-time"}
 	}
-	if reflect.PointerTo(t).Implements(textUnmarshalerTy) {
-		return &spec.Schema{Type: "string"}
+	if reflect.PointerTo(t).Implements(reflectorTextUnmarshalerTy) {
+		return &Schema{Type: "string"}
 	}
 	return nil
 }
 
-func (r *Reflector) reflectMap(t reflect.Type) (*spec.SchemaOrReference, error) {
+func (r *Reflector) reflectMap(t reflect.Type) (*SchemaOrReference, error) {
 	if t.Key().Kind() != reflect.String {
 		return nil, fmt.Errorf("OpenAPI object map key must be string, got %s", t.Key())
 	}
@@ -133,32 +131,23 @@ func (r *Reflector) reflectMap(t reflect.Type) (*spec.SchemaOrReference, error) 
 		return nil, err
 	}
 
-	return spec.InlineSchema(&spec.Schema{
-		Type:                 "object",
-		AdditionalProperties: valueSchema,
-	}), nil
+	return InlineSchema(&Schema{Type: "object", AdditionalProperties: valueSchema}), nil
 }
 
-func (r *Reflector) reflectStruct(t reflect.Type) (*spec.SchemaOrReference, error) {
+func (r *Reflector) reflectStruct(t reflect.Type) (*SchemaOrReference, error) {
 	name := r.schemaName(t)
 
 	if _, exists := r.Components[name]; exists {
-		return spec.SchemaRef(name), nil
+		return SchemaRef(name), nil
 	}
-
 	if r.Visiting[t] {
-		return spec.SchemaRef(name), nil
+		return SchemaRef(name), nil
 	}
 
 	r.Visiting[t] = true
 	defer delete(r.Visiting, t)
 
-	placeholder := &spec.SchemaOrReference{
-		Value: &spec.Schema{
-			Type:       "object",
-			Properties: make(map[string]*spec.SchemaOrReference),
-		},
-	}
+	placeholder := &SchemaOrReference{Value: &Schema{Type: "object", Properties: make(map[string]*SchemaOrReference)}}
 	r.Components[name] = placeholder
 	schema := placeholder.Value
 
@@ -172,7 +161,6 @@ func (r *Reflector) reflectStruct(t reflect.Type) (*spec.SchemaOrReference, erro
 		if skip {
 			continue
 		}
-
 		if fieldName == "" {
 			fieldName = field.Name
 		}
@@ -190,7 +178,7 @@ func (r *Reflector) reflectStruct(t reflect.Type) (*spec.SchemaOrReference, erro
 		}
 	}
 
-	return spec.SchemaRef(name), nil
+	return SchemaRef(name), nil
 }
 
 func (r *Reflector) schemaName(t reflect.Type) string {
@@ -202,14 +190,7 @@ func (r *Reflector) schemaName(t reflect.Type) string {
 		return t.Name()
 	}
 
-	name := strings.NewReplacer(
-		"*", "",
-		"[]", "Array",
-		"[", "",
-		"]", "",
-		".", "_",
-	).Replace(t.String())
-
+	name := strings.NewReplacer("*", "", "[]", "Array", "[", "", "]", "", ".", "_").Replace(t.String())
 	r.Names[t] = name
 	return name
 }
@@ -246,16 +227,14 @@ func isFieldRequired(field reflect.StructField, jsonOptions map[string]bool) boo
 	return field.Type.Kind() != reflect.Pointer
 }
 
-func applyFieldTags(ref *spec.SchemaOrReference, field reflect.StructField) *spec.SchemaOrReference {
+func applyFieldTags(ref *SchemaOrReference, field reflect.StructField) *SchemaOrReference {
 	if ref == nil {
 		return nil
 	}
 
 	target := ref
 	if ref.Ref != "" {
-		target = spec.InlineSchema(&spec.Schema{
-			AllOf: []*spec.SchemaOrReference{{Ref: ref.Ref}},
-		})
+		target = InlineSchema(&Schema{AllOf: []*SchemaOrReference{{Ref: ref.Ref}}})
 	}
 	if target.Value == nil {
 		return target
@@ -263,7 +242,6 @@ func applyFieldTags(ref *spec.SchemaOrReference, field reflect.StructField) *spe
 
 	schema := target.Value
 	schema.Description = field.Tag.Get("description")
-
 	if value := field.Tag.Get("format"); value != "" {
 		schema.Format = value
 	}
@@ -298,8 +276,9 @@ func applyFieldTags(ref *spec.SchemaOrReference, field reflect.StructField) *spe
 			schema.MaxLength = &parsed
 		}
 	}
-
-	schema.Pattern = field.Tag.Get("pattern")
+	if value := field.Tag.Get("pattern"); value != "" {
+		schema.Pattern = value
+	}
 	schema.ReadOnly = field.Tag.Get("readOnly") == "true"
 	schema.WriteOnly = field.Tag.Get("writeOnly") == "true"
 	schema.Deprecated = field.Tag.Get("deprecated") == "true"

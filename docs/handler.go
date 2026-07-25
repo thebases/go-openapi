@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
-
-	openapi "github.com/thebases/go-openapi/core"
 )
 
-func DocumentHandler(api *openapi.API) http.Handler {
+type documentSource interface {
+	JSON() ([]byte, error)
+}
+
+func DocumentHandler(source documentSource) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		raw, err := api.JSON()
+		raw, err := source.JSON()
 		if err != nil {
 			http.Error(w, "failed to render OpenAPI document", http.StatusInternalServerError)
 			return

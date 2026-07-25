@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gofiber/fiber/v3"
-	openapi "github.com/thebases/go-openapi/core"
 	openapidocs "github.com/thebases/go-openapi/docs"
+	openapi "github.com/thebases/go-openapi/openapi"
 )
 
 func Handle(router fiber.Router, api *openapi.API, method, path string, operation openapi.Operation, handlers ...fiber.Handler) error {

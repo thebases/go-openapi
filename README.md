@@ -84,5 +84,7 @@ Each example is a separate module:
 
 ## Current verification
 
-- `go test ./openapi ./core ./docs ./reflector ./validator` passes.
+- `go test ./openapi ./docs` passes.
 - The nested integration/example modules still need their own `go.sum` written with `go mod tidy` or `go test ./...` in a network-enabled environment.
+
+

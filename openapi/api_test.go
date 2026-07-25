@@ -14,10 +14,10 @@ func TestAPIAddOperation(t *testing.T) {
 	err := api.AddOperation(http.MethodGet, "/merchants/{id}", Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
-		Parameters: []Parameter{
+		Parameters: []ParameterOrReference{
 			PathParameter("id", StringSchema()),
 		},
-		Responses: Responses{
+		Responses: map[string]ResponseOrReference{
 			"200": JSONResponse("Merchant returned", RefSchema("Merchant")),
 		},
 	})

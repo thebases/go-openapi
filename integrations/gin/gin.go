@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	openapi "github.com/thebases/go-openapi/core"
 	openapidocs "github.com/thebases/go-openapi/docs"
+	openapi "github.com/thebases/go-openapi/openapi"
 )
 
 func Handle(router gin.IRoutes, api *openapi.API, method, path string, operation openapi.Operation, handlers ...gin.HandlerFunc) error {

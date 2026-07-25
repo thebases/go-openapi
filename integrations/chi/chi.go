@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	openapi "github.com/thebases/go-openapi/core"
 	openapidocs "github.com/thebases/go-openapi/docs"
+	openapi "github.com/thebases/go-openapi/openapi"
 )
 
 func Handle(router chi.Router, api *openapi.API, method, path string, operation openapi.Operation, handler http.Handler) error {
