@@ -4,17 +4,19 @@ import (
 	"log"
 
 	"github.com/gofiber/fiber/v3"
+	api "github.com/thebases/go-openapi/integrations/fiber"
 	openapi "github.com/thebases/go-openapi/openapi"
 )
 
 func main() {
 	app := fiber.New()
-	api := openapi.New(
+	doc := openapi.New(
 		openapi.WithTitle("Fiber Example API"),
 		openapi.WithVersion("1.0.0"),
+		openapi.WithDocStyle(openapi.DocsSwagger),
 	)
 
-	err := openapi.Fiber.GET(app, api, "/merchants/:id", openapi.Operation{
+	err := api.GET(app, doc, "/merchants/:id", openapi.Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
 		Parameters: []openapi.ParameterOrReference{
@@ -27,10 +29,6 @@ func main() {
 		return c.JSON(fiber.Map{"id": c.Params("id"), "name": "The Base"})
 	})
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := openapi.Fiber.MountDocs(app, api, "/docs", "/openapi.json", openapi.DocsConfig{Provider: openapi.DocsSwagger, Title: "Fiber Example API"}); err != nil {
 		log.Fatal(err)
 	}
 

@@ -4,8 +4,8 @@ type Provider string
 
 const (
 	Swagger Provider = "swagger"
+	Base    Provider = "base"
 	Scalar  Provider = "scalar"
-	Redoc   Provider = "redoc"
 )
 
 type Config struct {

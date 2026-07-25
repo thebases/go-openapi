@@ -8,7 +8,7 @@ The main public package is:
 github.com/thebases/go-openapi/openapi
 ```
 
-The shared docs-serving package still exists at `github.com/thebases/go-openapi/docs`, and the thin framework integration modules still exist under `integrations/*`, but callers can now use the `openapi` facade package as the primary entrypoint.
+The shared docs-serving package still exists at `github.com/thebases/go-openapi/docs`. Framework integrations under `integrations/*` are now the preferred route-registration entrypoint, while the `openapi` facade remains available as a compatibility layer.
 
 ## Core usage
 
@@ -24,6 +24,7 @@ api := openapi.New(
     openapi.WithDescription("Merchant management endpoints"),
     openapi.WithVersion("1.0.0"),
     openapi.WithServer("https://api.example.com", "Production"),
+    openapi.WithDocStyle(openapi.DocsSwagger),
 )
 
 err := api.AddOperation(http.MethodGet, "/merchants/{id}", openapi.Operation{
@@ -37,6 +38,11 @@ err := api.AddOperation(http.MethodGet, "/merchants/{id}", openapi.Operation{
     },
 })
 ```
+
+When `WithDocStyle(...)` is set, docs are mounted automatically on:
+
+- `/docs`
+- `/openapi.json`
 
 ## Facade namespaces
 
@@ -53,17 +59,42 @@ handler, err := openapi.Docs.Handler(openapi.DocsConfig{
 Gin:
 
 ```go
-err := openapi.Gin.GET(router, api, "/merchants/:id", operation, getMerchant)
-err = openapi.Gin.MountDocs(router, api, "/docs", "/openapi.json", openapi.DocsConfig{
-    Provider: openapi.DocsSwagger,
-    Title:    "Merchant API",
-})
+import (
+    api "github.com/thebases/go-openapi/integrations/gin"
+    openapi "github.com/thebases/go-openapi/openapi"
+)
+
+apiDoc := openapi.New(
+    openapi.WithTitle("Merchant API"),
+    openapi.WithVersion("1.0.0"),
+    openapi.WithDocStyle(openapi.DocsSwagger),
+)
+
+err := api.GET(router, apiDoc, "/merchants/:id", operation, getMerchant)
 ```
 
 Fiber:
 
 ```go
-err := openapi.Fiber.GET(app, api, "/merchants/:id", operation, getMerchant)
+import (
+    api "github.com/thebases/go-openapi/integrations/fiber"
+    openapi "github.com/thebases/go-openapi/openapi"
+)
+
+apiDoc := openapi.New(
+    openapi.WithTitle("Merchant API"),
+    openapi.WithVersion("1.0.0"),
+    openapi.WithDocStyle(openapi.DocsSwagger),
+)
+
+err := api.GET(app, apiDoc, "/merchants/:id", operation, getMerchant)
+```
+
+Compatibility facade:
+
+```go
+err := openapi.Gin.GET(router, apiDoc, "/merchants/:id", operation, getMerchant)
+err := openapi.Fiber.GET(app, apiDoc, "/merchants/:id", operation, getMerchant)
 ```
 
 Chi:
@@ -86,5 +117,3 @@ Each example is a separate module:
 
 - `go test ./openapi ./docs` passes.
 - The nested integration/example modules still need their own `go.sum` written with `go mod tidy` or `go test ./...` in a network-enabled environment.
-
-

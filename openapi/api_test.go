@@ -34,6 +34,12 @@ func TestAPIAddOperation(t *testing.T) {
 	}
 }
 
+func TestWithDocStyle(t *testing.T) {
+	api := New(WithDocStyle(DocsBase))
+	if api.docsProvider != DocsBase {
+		t.Fatalf("unexpected docs provider: %q", api.docsProvider)
+	}
+}
 func TestCanonicalPath(t *testing.T) {
 	if got := CanonicalPath("/users/:id/files/*path"); got != "/users/{id}/files/{path}" {
 		t.Fatalf("unexpected canonical path: %q", got)

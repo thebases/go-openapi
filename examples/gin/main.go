@@ -4,17 +4,19 @@ import (
 	"log"
 
 	"github.com/gin-gonic/gin"
+	api "github.com/thebases/go-openapi/integrations/gin"
 	openapi "github.com/thebases/go-openapi/openapi"
 )
 
 func main() {
 	router := gin.New()
-	api := openapi.New(
+	docs := openapi.New(
 		openapi.WithTitle("Gin Example API"),
 		openapi.WithVersion("1.0.0"),
+		openapi.WithDocStyle(openapi.DocsSwagger),
 	)
 
-	err := openapi.Gin.GET(router, api, "/merchants/:id", openapi.Operation{
+	err := api.GET(router, docs, "/merchants/:id", openapi.Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
 		Parameters: []openapi.ParameterOrReference{
@@ -27,10 +29,6 @@ func main() {
 		c.JSON(200, gin.H{"id": c.Param("id"), "name": "The Base"})
 	})
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := openapi.Gin.MountDocs(router, api, "/docs", "/openapi.json", openapi.DocsConfig{Provider: openapi.DocsSwagger, Title: "Gin Example API"}); err != nil {
 		log.Fatal(err)
 	}
 

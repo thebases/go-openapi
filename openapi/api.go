@@ -23,8 +23,12 @@ var (
 )
 
 type API struct {
-	mu  sync.RWMutex
-	doc Document
+	mu sync.RWMutex
+
+	doc          Document
+	docsProvider DocsProvider
+	docsEnabled  bool
+	docsMounted  map[string]bool
 }
 
 type Option func(*API)
@@ -35,8 +39,8 @@ type DocsProvider = openapidocs.Provider
 
 const (
 	DocsSwagger DocsProvider = openapidocs.Swagger
+	DocsBase    DocsProvider = openapidocs.Base
 	DocsScalar  DocsProvider = openapidocs.Scalar
-	DocsRedoc   DocsProvider = openapidocs.Redoc
 )
 
 var (
@@ -64,6 +68,8 @@ func New(options ...Option) *API {
 				Schemas: map[string]*SchemaOrReference{},
 			},
 		},
+		docsProvider: DocsSwagger,
+		docsMounted:  map[string]bool{},
 	}
 
 	for _, option := range options {
@@ -94,6 +100,13 @@ func WithVersion(version string) Option {
 func WithServer(url, description string) Option {
 	return func(api *API) {
 		api.doc.Servers = append(api.doc.Servers, Server{URL: url, Description: description})
+	}
+}
+
+func WithDocStyle(provider DocsProvider) Option {
+	return func(api *API) {
+		api.docsProvider = provider
+		api.docsEnabled = true
 	}
 }
 
@@ -165,6 +178,34 @@ func (api *API) JSON() ([]byte, error) {
 	api.mu.RLock()
 	defer api.mu.RUnlock()
 	return json.MarshalIndent(api.doc, "", "  ")
+}
+
+func (api *API) docsTitle() string {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	return api.doc.Info.Title
+}
+
+func (api *API) shouldAutoMountDocs() bool {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	return api.docsEnabled
+}
+
+func (api *API) markDocsMounted(key string) bool {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if api.docsMounted[key] {
+		return false
+	}
+	api.docsMounted[key] = true
+	return true
+}
+
+func (api *API) unmarkDocsMounted(key string) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	delete(api.docsMounted, key)
 }
 
 func operationSlot(item *PathItem, method string) (**Operation, error) {
@@ -239,7 +280,10 @@ func (docsNamespace) DocumentHandler(api *API) http.Handler {
 }
 
 func (ginNamespace) Handle(router any, api *API, method, path string, operation Operation, handlers ...any) error {
-	if err := api.AddOperation(method, CanonicalPath(path), operation); err != nil {
+	if err := registerOperation(api, method, path, operation); err != nil {
+		return err
+	}
+	if err := mountDocsIfConfigured(router, api, mountGinDocs); err != nil {
 		return err
 	}
 	return callVariadicMethod(router, "Handle", []any{method, path}, handlers)
@@ -262,48 +306,18 @@ func (ginNamespace) DELETE(router any, api *API, path string, operation Operatio
 }
 
 func (ginNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
-	if docsPath == "" {
-		docsPath = "/docs"
-	}
-	if documentPath == "" {
-		documentPath = "/openapi.json"
-	}
-	config.DocumentURL = documentPath
-	docsHandler, err := openapidocs.DocsHandler(config)
+	docsPath, documentPath, docsHandler, documentHandler, err := prepareDocsMount(api, docsPath, documentPath, config)
 	if err != nil {
 		return err
 	}
-	documentHandler, err := makeGinHandler(router, func(ctx reflect.Value) {
-		raw, jsonErr := api.JSON()
-		if jsonErr != nil {
-			callMethodIfPresent(ctx, "AbortWithError", http.StatusInternalServerError, jsonErr)
-			return
-		}
-		callMethod(ctx, "Data", http.StatusOK, "application/json; charset=utf-8", raw)
-	})
-	if err != nil {
-		return err
-	}
-	docsRouteHandler, err := makeGinHandler(router, func(ctx reflect.Value) {
-		writer := contextField(ctx, "Writer")
-		request := contextField(ctx, "Request")
-		if !writer.IsValid() || !request.IsValid() || request.IsNil() {
-			callMethodIfPresent(ctx, "AbortWithStatus", http.StatusInternalServerError)
-			return
-		}
-		docsHandler.ServeHTTP(writer.Interface().(http.ResponseWriter), request.Interface().(*http.Request))
-	})
-	if err != nil {
-		return err
-	}
-	if err := callVariadicMethod(router, "GET", []any{documentPath}, []any{documentHandler.Interface()}); err != nil {
-		return err
-	}
-	return callVariadicMethod(router, "GET", []any{docsPath}, []any{docsRouteHandler.Interface()})
+	return mountGinDocs(router, docsPath, documentPath, docsHandler, documentHandler)
 }
 
 func (fiberNamespace) Handle(router any, api *API, method, path string, operation Operation, handlers ...any) error {
-	if err := api.AddOperation(method, CanonicalPath(path), operation); err != nil {
+	if err := registerOperation(api, method, path, operation); err != nil {
+		return err
+	}
+	if err := mountDocsIfConfigured(router, api, mountFiberDocs); err != nil {
 		return err
 	}
 	return callVariadicMethod(router, "Add", []any{[]string{method}, path}, handlers)
@@ -325,55 +339,18 @@ func (fiberNamespace) DELETE(router any, api *API, path string, operation Operat
 }
 
 func (fiberNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
-	if docsPath == "" {
-		docsPath = "/docs"
-	}
-	if documentPath == "" {
-		documentPath = "/openapi.json"
-	}
-	config.DocumentURL = documentPath
-	docsHandler, err := openapidocs.DocsHandler(config)
+	docsPath, documentPath, docsHandler, documentHandler, err := prepareDocsMount(api, docsPath, documentPath, config)
 	if err != nil {
 		return err
 	}
-	documentHandler, err := makeFiberHandler(router, func(ctx reflect.Value) error {
-		raw, jsonErr := api.JSON()
-		if jsonErr != nil {
-			return jsonErr
-		}
-		callMethodIfPresent(ctx, "Set", "Content-Type", "application/json; charset=utf-8")
-		return callErrorMethod(ctx, "Send", raw)
-	})
-	if err != nil {
-		return err
-	}
-	docsRouteHandler, err := makeFiberHandler(router, func(ctx reflect.Value) error {
-		recorder := &memoryResponseWriter{header: http.Header{}}
-		docsHandler.ServeHTTP(recorder, &http.Request{})
-		for key, values := range recorder.header {
-			for _, value := range values {
-				if !callMethodIfPresent(ctx, "Append", key, value) {
-					callMethodIfPresent(ctx, "Set", key, value)
-				}
-			}
-		}
-		statusResult, ok := callMethodValue(ctx, "Status", recorder.statusOrOK())
-		if !ok {
-			return callErrorMethod(ctx, "Send", recorder.body)
-		}
-		return callErrorMethod(statusResult, "Send", recorder.body)
-	})
-	if err != nil {
-		return err
-	}
-	if err := callVariadicMethod(router, "Get", []any{documentPath}, []any{documentHandler.Interface()}); err != nil {
-		return err
-	}
-	return callVariadicMethod(router, "Get", []any{docsPath}, []any{docsRouteHandler.Interface()})
+	return mountFiberDocs(router, docsPath, documentPath, docsHandler, documentHandler)
 }
 
 func (chiNamespace) Handle(router any, api *API, method, path string, operation Operation, handler http.Handler) error {
-	if err := api.AddOperation(method, CanonicalPath(path), operation); err != nil {
+	if err := registerOperation(api, method, path, operation); err != nil {
+		return err
+	}
+	if err := mountDocsIfConfigured(router, api, mountChiDocs); err != nil {
 		return err
 	}
 	return callMethodExact(router, "Method", method, path, handler)
@@ -395,23 +372,58 @@ func (chiNamespace) DELETE(router any, api *API, path string, operation Operatio
 }
 
 func (chiNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
-	if docsPath == "" {
-		docsPath = "/docs"
-	}
-	if documentPath == "" {
-		documentPath = "/openapi.json"
-	}
-	config.DocumentURL = documentPath
-	docsHandler, err := openapidocs.DocsHandler(config)
+	docsPath, documentPath, docsHandler, documentHandler, err := prepareDocsMount(api, docsPath, documentPath, config)
 	if err != nil {
 		return err
 	}
-	if err := callMethodExact(router, "Handle", documentPath, openapidocs.DocumentHandler(api)); err != nil {
-		return err
-	}
-	return callMethodExact(router, "Handle", docsPath, docsHandler)
+	return mountChiDocs(router, docsPath, documentPath, docsHandler, documentHandler)
 }
 
+func mountGinDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
+	documentRouteHandler, err := makeGinHTTPHandler(router, documentHandler)
+	if err != nil {
+		return err
+	}
+	docsRouteHandler, err := makeGinHTTPHandler(router, docsHandler)
+	if err != nil {
+		return err
+	}
+	if err := callVariadicMethod(router, "GET", []any{documentPath}, []any{documentRouteHandler.Interface()}); err != nil {
+		return err
+	}
+	if err := callVariadicMethod(router, "GET", []any{docsPath}, []any{docsRouteHandler.Interface()}); err != nil {
+		return err
+	}
+	return callVariadicMethod(router, "GET", []any{docsPath + "/*asset"}, []any{docsRouteHandler.Interface()})
+}
+
+func mountFiberDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
+	documentRouteHandler, err := makeFiberHTTPHandler(router, documentHandler)
+	if err != nil {
+		return err
+	}
+	docsRouteHandler, err := makeFiberHTTPHandler(router, docsHandler)
+	if err != nil {
+		return err
+	}
+	if err := callVariadicMethod(router, "Get", []any{documentPath}, []any{documentRouteHandler.Interface()}); err != nil {
+		return err
+	}
+	if err := callVariadicMethod(router, "Get", []any{docsPath}, []any{docsRouteHandler.Interface()}); err != nil {
+		return err
+	}
+	return callVariadicMethod(router, "Get", []any{docsPath + "/*"}, []any{docsRouteHandler.Interface()})
+}
+
+func mountChiDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
+	if err := callMethodExact(router, "Handle", documentPath, documentHandler); err != nil {
+		return err
+	}
+	if err := callMethodExact(router, "Handle", docsPath, docsHandler); err != nil {
+		return err
+	}
+	return callMethodExact(router, "Handle", docsPath+"/*", docsHandler)
+}
 func callVariadicMethod(target any, name string, fixedArgs []any, variadicArgs []any) error {
 	method := reflect.ValueOf(target).MethodByName(name)
 	if !method.IsValid() {
@@ -491,6 +503,20 @@ func makeGinHandler(router any, fn func(ctx reflect.Value)) (reflect.Value, erro
 	}), nil
 }
 
+func makeGinHTTPHandler(router any, handler http.Handler) (reflect.Value, error) {
+	// Gin can reuse the native response writer and request directly, so docs and
+	// document handlers stay aligned with the net/http behavior.
+	return makeGinHandler(router, func(ctx reflect.Value) {
+		writer := contextField(ctx, "Writer")
+		request := contextField(ctx, "Request")
+		if !writer.IsValid() || !request.IsValid() || request.IsNil() {
+			callMethodIfPresent(ctx, "AbortWithStatus", http.StatusInternalServerError)
+			return
+		}
+		handler.ServeHTTP(writer.Interface().(http.ResponseWriter), request.Interface().(*http.Request))
+	})
+}
+
 func makeFiberHandler(router any, fn func(ctx reflect.Value) error) (reflect.Value, error) {
 	method := reflect.ValueOf(router).MethodByName("Get")
 	if !method.IsValid() {
@@ -507,6 +533,27 @@ func makeFiberHandler(router any, fn func(ctx reflect.Value) error) (reflect.Val
 		}
 		return []reflect.Value{reflect.ValueOf(err)}
 	}), nil
+}
+
+func makeFiberHTTPHandler(router any, handler http.Handler) (reflect.Value, error) {
+	// Fiber needs a response recorder bridge because the docs package emits
+	// standard net/http handlers while Fiber expects its own handler contract.
+	return makeFiberHandler(router, func(ctx reflect.Value) error {
+		recorder := &memoryResponseWriter{header: http.Header{}}
+		handler.ServeHTTP(recorder, &http.Request{})
+		for key, values := range recorder.header {
+			for _, value := range values {
+				if !callMethodIfPresent(ctx, "Append", key, value) {
+					callMethodIfPresent(ctx, "Set", key, value)
+				}
+			}
+		}
+		statusResult, ok := callMethodValue(ctx, "Status", recorder.statusOrOK())
+		if !ok {
+			return callErrorMethod(ctx, "Send", recorder.body)
+		}
+		return callErrorMethod(statusResult, "Send", recorder.body)
+	})
 }
 
 func callMethod(target reflect.Value, name string, args ...any) []reflect.Value {

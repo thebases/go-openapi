@@ -6,17 +6,19 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	api "github.com/thebases/go-openapi/integrations/chi"
 	openapi "github.com/thebases/go-openapi/openapi"
 )
 
 func main() {
 	router := chi.NewRouter()
-	api := openapi.New(
+	doc := openapi.New(
 		openapi.WithTitle("Chi Example API"),
 		openapi.WithVersion("1.0.0"),
+		openapi.WithDocStyle(openapi.DocsSwagger),
 	)
 
-	err := openapi.Chi.GET(router, api, "/merchants/{id}", openapi.Operation{
+	err := api.GET(router, doc, "/merchants/{id}", openapi.Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
 		Parameters: []openapi.ParameterOrReference{
@@ -32,10 +34,6 @@ func main() {
 		})
 	})
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := openapi.Chi.MountDocs(router, api, "/docs", "/openapi.json", openapi.DocsConfig{Provider: openapi.DocsSwagger, Title: "Chi Example API"}); err != nil {
 		log.Fatal(err)
 	}
 

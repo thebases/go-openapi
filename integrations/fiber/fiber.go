@@ -2,77 +2,86 @@ package openapifiber
 
 import (
 	"net/http"
+	"net/url"
 
 	"github.com/gofiber/fiber/v3"
-	openapidocs "github.com/thebases/go-openapi/docs"
 	openapi "github.com/thebases/go-openapi/openapi"
 )
 
-func Handle(router fiber.Router, api *openapi.API, method, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	if err := api.AddOperation(method, openapi.CanonicalPath(path), operation); err != nil {
-		return err
-	}
-
-	router.Add([]string{method}, path, handlers...)
-	return nil
-}
-
-func GET(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	return Handle(router, api, http.MethodGet, path, operation, handlers...)
-}
-
-func POST(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	return Handle(router, api, http.MethodPost, path, operation, handlers...)
-}
-
-func PUT(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	return Handle(router, api, http.MethodPut, path, operation, handlers...)
-}
-
-func PATCH(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	return Handle(router, api, http.MethodPatch, path, operation, handlers...)
-}
-
-func DELETE(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	return Handle(router, api, http.MethodDelete, path, operation, handlers...)
-}
-
-func MountDocs(router fiber.Router, api *openapi.API, docsPath, documentPath string, config openapidocs.Config) error {
-	if docsPath == "" {
-		docsPath = "/docs"
-	}
-	if documentPath == "" {
-		documentPath = "/openapi.json"
-	}
-
-	config.DocumentURL = documentPath
-
-	docsHandler, err := openapidocs.DocsHandler(config)
-	if err != nil {
-		return err
-	}
-
-	router.Get(documentPath, func(c fiber.Ctx) error {
-		raw, err := api.JSON()
-		if err != nil {
-			return err
-		}
-		c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSONCharsetUTF8)
-		return c.Send(raw)
-	})
-
-	router.Get(docsPath, func(c fiber.Ctx) error {
+func mountDocs(router fiber.Router, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
+	// Replay standard net/http handlers into Fiber so framework integrations do
+	// not need to duplicate docs generation behavior.
+	serveHTTP := func(c fiber.Ctx, handler http.Handler) error {
+		request := &http.Request{Method: http.MethodGet, URL: &url.URL{Path: c.Path()}}
 		recorder := &fiberHTTPWriter{header: http.Header{}}
-		docsHandler.ServeHTTP(recorder, &http.Request{})
+		handler.ServeHTTP(recorder, request)
 		for key, values := range recorder.header {
 			for _, value := range values {
 				c.Append(key, value)
 			}
 		}
 		return c.Status(recorder.statusOrOK()).Send(recorder.body)
-	})
+	}
 
+	router.Get(documentPath, func(c fiber.Ctx) error {
+		return serveHTTP(c, documentHandler)
+	})
+	router.Get(docsPath, func(c fiber.Ctx) error {
+		return serveHTTP(c, docsHandler)
+	})
+	router.Get(docsPath+"/*", func(c fiber.Ctx) error {
+		return serveHTTP(c, docsHandler)
+	})
 	return nil
+}
+
+var routes = openapi.RouteRegistrar[fiber.Router, fiber.Handler]{
+	Register: func(router fiber.Router, method, path string, handlers ...fiber.Handler) {
+		if len(handlers) == 0 {
+			return
+		}
+
+		// Fiber v3 requires one fixed handler argument before the variadic tail.
+		tail := make([]any, 0, len(handlers)-1)
+		for _, handler := range handlers[1:] {
+			tail = append(tail, handler)
+		}
+
+		router.Add([]string{method}, path, handlers[0], tail...)
+	},
+	MountDocs: mountDocs,
+}
+
+var docs = openapi.DocsRegistrar[fiber.Router]{
+	Mount: mountDocs,
+}
+
+func Handle(router fiber.Router, api *openapi.API, method, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
+	return routes.Handle(router, api, method, path, operation, handlers...)
+}
+
+func GET(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
+	return routes.GET(router, api, path, operation, handlers...)
+}
+
+func POST(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
+	return routes.POST(router, api, path, operation, handlers...)
+}
+
+func PUT(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
+	return routes.PUT(router, api, path, operation, handlers...)
+}
+
+func PATCH(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
+	return routes.PATCH(router, api, path, operation, handlers...)
+}
+
+func DELETE(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
+	return routes.DELETE(router, api, path, operation, handlers...)
+}
+
+func MountDocs(router fiber.Router, api *openapi.API, docsPath, documentPath string, config openapi.DocsConfig) error {
+	return docs.MountDocs(router, api, docsPath, documentPath, config)
 }
 
 type fiberHTTPWriter struct {

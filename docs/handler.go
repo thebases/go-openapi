@@ -1,14 +1,22 @@
 package docs
 
 import (
-	"fmt"
+	"embed"
 	"html/template"
+	"io/fs"
 	"net/http"
+	"strings"
 )
 
 type documentSource interface {
 	JSON() ([]byte, error)
 }
+
+// uiFS keeps the bundled docs UIs inside the binary so /docs can serve a complete
+// page without relying on extra static-file routes or remote CDNs.
+//
+//go:embed ui/swagger/* ui/base/*
+var uiFS embed.FS
 
 func DocumentHandler(source documentSource) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -43,18 +51,91 @@ func DocsHandler(config Config) (http.Handler, error) {
 }
 
 func render(config Config) (string, error) {
-	var body string
+	uiDir := resolveUIDir(config.Provider)
 
-	switch config.Provider {
-	case "", Swagger:
-		body = fmt.Sprintf(`<div id="swagger-ui"></div><link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"><script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script><script>SwaggerUIBundle({url:%q,dom_id:'#swagger-ui'})</script>`, config.DocumentURL)
-	case Scalar:
-		body = fmt.Sprintf(`<script id="api-reference" data-url=%q></script><script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>`, config.DocumentURL)
-	case Redoc:
-		body = fmt.Sprintf(`<redoc spec-url=%q></redoc><script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>`, config.DocumentURL)
-	default:
-		return "", fmt.Errorf("openapi docs: unknown provider %q", config.Provider)
+	swaggerCSS, err := readUIAsset(uiDir, "swagger-ui.css")
+	if err != nil {
+		return "", err
+	}
+	customCSS, err := readUIAsset(uiDir, "index.css")
+	if err != nil {
+		return "", err
+	}
+	swaggerBundle, err := readUIAsset(uiDir, "swagger-ui-bundle.js")
+	if err != nil {
+		return "", err
+	}
+	standalonePreset, err := readUIAsset(uiDir, "swagger-ui-standalone-preset.js")
+	if err != nil {
+		return "", err
+	}
+	initializer, err := readUIAsset(uiDir, "swagger-initializer.js")
+	if err != nil {
+		return "", err
 	}
 
-	return fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s</title></head><body>%s</body></html>`, template.HTMLEscapeString(config.Title), body), nil
+	// The bundled initializer ships with a placeholder petstore URL, so rewrite it
+	// per request to keep the selected UI pointed at the caller's document route.
+	initializer = strings.Replace(initializer, "https://petstore.swagger.io/v2/swagger.json", config.DocumentURL, 1)
+
+	page := docsPageData{
+		Title:            template.HTMLEscapeString(config.Title),
+		SwaggerCSS:       template.CSS(swaggerCSS),
+		CustomCSS:        template.CSS(customCSS),
+		SwaggerBundle:    template.JS(swaggerBundle),
+		StandalonePreset: template.JS(standalonePreset),
+		Initializer:      template.JS(initializer),
+	}
+
+	var html strings.Builder
+	if err := docsPageTemplate.Execute(&html, page); err != nil {
+		return "", err
+	}
+
+	return html.String(), nil
+}
+
+type docsPageData struct {
+	Title            string
+	SwaggerCSS       template.CSS
+	CustomCSS        template.CSS
+	SwaggerBundle    template.JS
+	StandalonePreset template.JS
+	Initializer      template.JS
+}
+
+var docsPageTemplate = template.Must(template.New("docs-page").Parse(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{.Title}}</title>
+  <style>{{.SwaggerCSS}}</style>
+  <style>{{.CustomCSS}}</style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script>{{.SwaggerBundle}}</script>
+  <script>{{.StandalonePreset}}</script>
+  <script>{{.Initializer}}</script>
+</body>
+</html>`))
+
+func resolveUIDir(provider Provider) string {
+	switch provider {
+	case Base, Scalar:
+		return "ui/base"
+	case Swagger, "":
+		return "ui/swagger"
+	default:
+		return "ui/swagger"
+	}
+}
+
+func readUIAsset(uiDir, name string) (string, error) {
+	raw, err := fs.ReadFile(uiFS, uiDir+"/"+name)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
