@@ -34,10 +34,11 @@ openapi.GET(
 )
 ```
 
-Produces an OpenAPI 3.0 document at:
+Produces an OpenAPI 3.0 document and Swagger UI at:
 
 ```text
-GET /openapi.json
+GET /docs
+GET /docs/openapi.json
 ```
 
 ## Design constraints
@@ -102,3 +103,4 @@ Before publishing a release:
 - Recursive schema support
 - Bearer authentication
 - Basic semantic validation
+
