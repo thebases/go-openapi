@@ -44,6 +44,56 @@ func TestCustomJSONPathServesSwaggerUIFromSpecDirectory(t *testing.T) {
 	assertResponseContains(t, app, "/reference/openapi.json", http.StatusOK, "\"info\": {")
 }
 
+func TestDocsBrandingDefaultsUseEmbeddedAssets(t *testing.T) {
+	app := fiber.New()
+	New(app, Config{
+		Title:   "Test API",
+		Version: "1.0.0",
+	})
+
+	assertResponseContains(t, app, "/docs/index.html", http.StatusOK, "./docs/favicon-32x32.png")
+	assertResponseContains(t, app, "/docs/index.html", http.StatusOK, "./docs/favicon-16x16.png")
+	assertResponseContains(t, app, "/docs/index.css", http.StatusOK, "mask: url(\"logo.svg\") center / contain no-repeat;")
+}
+
+func TestDocsBrandingSupportsSVGLogoWithoutDarkLogo(t *testing.T) {
+	app := fiber.New()
+	New(app, Config{
+		Title:   "Test API",
+		Version: "1.0.0",
+		Logo:    "/assets/brand.svg",
+	})
+
+	assertResponseContains(t, app, "/docs/index.css", http.StatusOK, "mask: url(\"/assets/brand.svg\") center / contain no-repeat;")
+}
+
+func TestDocsBrandingFallsBackDarkLogoToRasterLogo(t *testing.T) {
+	app := fiber.New()
+	New(app, Config{
+		Title:   "Test API",
+		Version: "1.0.0",
+		Logo:    "/assets/brand.png",
+	})
+
+	assertResponseContains(t, app, "/docs/index.css", http.StatusOK, "background: url(\"/assets/brand.png\") center / contain no-repeat;")
+	assertResponseContains(t, app, "/docs/index.css", http.StatusOK, "background-image: url(\"/assets/brand.png\");")
+}
+
+func TestDocsBrandingSupportsDedicatedDarkLogoAndFavicon(t *testing.T) {
+	app := fiber.New()
+	New(app, Config{
+		Title:    "Test API",
+		Version:  "1.0.0",
+		Logo:     "/assets/light.png",
+		DarkLogo: "/assets/dark.png",
+		Favicon:  "/assets/favicon.png",
+	})
+
+	assertResponseContains(t, app, "/docs/index.css", http.StatusOK, "background: url(\"/assets/light.png\") center / contain no-repeat;")
+	assertResponseContains(t, app, "/docs/index.css", http.StatusOK, "background-image: url(\"/assets/dark.png\");")
+	assertResponseContains(t, app, "/docs/index.html", http.StatusOK, "/assets/favicon.png")
+}
+
 func assertResponseContains(t *testing.T, app *fiber.App, target string, wantStatus int, wantBody string) {
 	t.Helper()
 

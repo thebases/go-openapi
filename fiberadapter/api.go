@@ -19,6 +19,9 @@ type Config struct {
 	Version     string
 	OpenAPI     string
 	JSONPath    string
+	Logo        string
+	DarkLogo    string
+	Favicon     string
 }
 
 type API struct {
@@ -68,7 +71,11 @@ func New(app *fiber.App, config Config) *API {
 
 	// Register docs routes once so the adapter owns the Fiber wiring and the
 	// document model stays reusable for other routers.
-	docs.Register(app, config.JSONPath, api.Document)
+	docs.Register(app, config.JSONPath, docs.UIConfig{
+		Logo:     config.Logo,
+		DarkLogo: config.DarkLogo,
+		Favicon:  config.Favicon,
+	}, api.Document)
 	return api
 }
 
