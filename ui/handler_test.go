@@ -43,8 +43,12 @@ func TestDocsHandlerSupportsBaseUI(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/docs", nil))
 
 	body := recorder.Body.String()
-	if !strings.Contains(body, `Base API`) || !strings.Contains(body, `Loading API documentation`) {
+	// Assert on stable Base shell markers instead of the removed placeholder nav label.
+	if !strings.Contains(body, `class="app-shell"`) || !strings.Contains(body, `Loading API documentation`) {
 		t.Fatalf("expected base UI shell content, got %q", body)
+	}
+	if !strings.Contains(body, `id="btn-authorize"`) || !strings.Contains(body, `id="sidebar-groups"`) {
+		t.Fatalf("expected base UI interactive shell controls, got %q", body)
 	}
 	if !strings.Contains(body, `<title>Merchant API</title>`) {
 		t.Fatalf("expected configured title, got %q", body)
@@ -156,5 +160,4 @@ func TestDocsHandlerRejectsNestedAssetTraversal(t *testing.T) {
 		t.Fatalf("expected 404 for traversal path, got %d", recorder.Code)
 	}
 }
-
 
