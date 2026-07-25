@@ -1,22 +1,41 @@
-html {
-    box-sizing: border-box;
-    min-height: 100%;
+:root {
+  color-scheme: dark;
+  font-family: Inter, "Segoe UI", sans-serif;
 }
 
-*,
-*:before,
-*:after {
-    box-sizing: inherit;
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100vh;
+  background: #0f1014;
 }
 
 body {
-    margin: 0;
-    min-height: 100vh;
-    background:
-        radial-gradient(circle at top, rgba(15, 23, 42, 0.08), transparent 28rem),
-        linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  color: #f4f4f5;
 }
 
-#app {
-    min-height: 100vh;
+.scalar-fallback {
+  max-width: 720px;
+  margin: 64px auto;
+  padding: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.scalar-fallback h1 {
+  margin: 0 0 12px;
+  font-size: 1.6rem;
+}
+
+.scalar-fallback p {
+  margin: 0 0 12px;
+  color: #c4c7d1;
+  line-height: 1.7;
+}
+
+.scalar-fallback a {
+  color: #8be9fd;
+  text-decoration: none;
 }

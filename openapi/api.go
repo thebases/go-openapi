@@ -166,18 +166,20 @@ func (api *API) RegisterSchema(name string, schema *SchemaOrReference) error {
 }
 
 func (api *API) Document() Document {
-	api.mu.RLock()
-	defer api.mu.RUnlock()
+	api.mu.Lock()
+	defer api.mu.Unlock()
 
-	raw, _ := json.Marshal(api.doc)
-	var result Document
-	_ = json.Unmarshal(raw, &result)
-	return result
+	_ = resolveDocumentDescriptions(&api.doc)
+	return api.doc
 }
 
 func (api *API) JSON() ([]byte, error) {
-	api.mu.RLock()
-	defer api.mu.RUnlock()
+	api.mu.Lock()
+	defer api.mu.Unlock()
+
+	if err := resolveDocumentDescriptions(&api.doc); err != nil {
+		return nil, err
+	}
 	return json.MarshalIndent(api.doc, "", "  ")
 }
 
