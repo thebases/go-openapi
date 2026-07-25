@@ -2,6 +2,8 @@ package openapiiris
 
 import (
 	"net/http"
+	"path"
+	"strings"
 
 	"github.com/kataras/iris/v12"
 	"github.com/kataras/iris/v12/core/handlerconv"
@@ -10,6 +12,11 @@ import (
 
 func mountDocs(router iris.Party, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
 	router.Get(documentPath, handlerconv.FromStd(documentHandler))
+	if aliasPath := docsDocumentAliasPath(docsPath, documentPath); aliasPath != "" {
+		// Keep a docs-scoped alias for the default document URL so requests under
+		// /docs do not fall through to the docs asset handler and return 404.
+		router.Get(aliasPath, handlerconv.FromStd(documentHandler))
+	}
 	router.Get(docsPath, handlerconv.FromStd(docsHandler))
 	router.Get(docsPath+"/{asset:path}", handlerconv.FromStd(docsHandler))
 	return nil
@@ -52,4 +59,19 @@ func DELETE(router iris.Party, api *openapi.API, spec openapi.RouteSpec, handler
 
 func MountDocs(router iris.Party, api *openapi.API, docsPath, documentPath string, config openapi.DocsConfig) error {
 	return docs.MountDocs(router, api, docsPath, documentPath, config)
+}
+
+func docsDocumentAliasPath(docsPath, documentPath string) string {
+	if documentPath != "/openapi.json" {
+		return ""
+	}
+	trimmedDocsPath := strings.TrimRight(docsPath, "/")
+	if trimmedDocsPath == "" || trimmedDocsPath == "/" {
+		return ""
+	}
+	aliasPath := trimmedDocsPath + "/" + path.Base(documentPath)
+	if aliasPath == documentPath {
+		return ""
+	}
+	return aliasPath
 }

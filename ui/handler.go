@@ -20,7 +20,7 @@ type documentSource interface {
 // fully embedded; Scalar uses checked-in templates plus CDN-hosted runtime
 // assets.
 //
-//go:embed theme/swagger/* theme/base/* theme/scalar/*
+//go:embed theme/swagger theme/base theme/scalar
 var uiFS embed.FS
 
 func DocumentHandler(source documentSource) http.Handler {
@@ -136,6 +136,7 @@ func renderBase(config Config, uiDir string) (string, error) {
 	page := basePageData{
 		Title:            config.Title,
 		DocumentURL:      config.DocumentURL,
+		AssetBasePath:    docsAssetBasePath(config.DocsPath),
 		DefaultLogo:      "img/logo.svg",
 		DefaultFavicon16: "img/favicon-16x16.png",
 		DefaultFavicon32: "img/favicon-32x32.png",
@@ -192,6 +193,7 @@ type swaggerPageData struct {
 type basePageData struct {
 	Title            string
 	DocumentURL      string
+	AssetBasePath    string
 	DefaultLogo      string
 	DefaultFavicon16 string
 	DefaultFavicon32 string
@@ -294,6 +296,14 @@ func scalarDocumentURL(docsPath, documentURL string) string {
 		return "."
 	}
 	return strings.Join(relative, "/")
+}
+
+func docsAssetBasePath(docsPath string) string {
+	cleaned := path.Clean("/" + docsPath)
+	if cleaned == "." || cleaned == "/" {
+		return ""
+	}
+	return cleaned
 }
 
 func splitURLPath(value string) []string {

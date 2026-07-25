@@ -3,6 +3,27 @@
 
 const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'];
 
+/**
+ * Normalizes an OpenAPI server URL into an absolute URL without a trailing slash.
+ * Falls back to the derived legacy base URL when the server entry is relative.
+ */
+function normalizeServerUrl(rawUrl, fallbackBaseUrl, variables) {
+  const template = String(rawUrl || '').trim();
+  if (!template) return '';
+
+  const expanded = template.replace(/\{([^}]+)\}/g, (_, name) => {
+    const variable = variables && typeof variables === 'object' ? variables[name] : null;
+    if (variable && variable.default !== undefined) return String(variable.default);
+    return `{${name}}`;
+  });
+
+  try {
+    return new URL(expanded, `${fallbackBaseUrl}/`).href.replace(/\/$/, '');
+  } catch {
+    return expanded.replace(/\/$/, '');
+  }
+}
+
 function resolveRef(node, spec) {
   if (node && typeof node === 'object' && typeof node.$ref === 'string') {
     const path = node.$ref.replace(/^#\//, '').split('/');
@@ -13,8 +34,59 @@ function resolveRef(node, spec) {
   return node;
 }
 
+function resolveExample(node, spec) {
+  if (!node) return null;
+  const resolved = resolveRef(node, spec);
+  if (!resolved || typeof resolved !== 'object') return null;
+  return resolved;
+}
+
 function schemaName(node) {
   if (node && typeof node.$ref === 'string') return node.$ref.split('/').pop();
+  return null;
+}
+
+function firstExampleEntry(examples, spec) {
+  if (!examples || typeof examples !== 'object') return null;
+  for (const [name, exampleNode] of Object.entries(examples)) {
+    const resolved = resolveExample(exampleNode, spec);
+    if (!resolved) continue;
+    if (resolved.value !== undefined) {
+      return { key: name, label: resolved.summary || name, value: resolved.value, isAuto: false };
+    }
+    if (resolved.externalValue) {
+      return { key: name, label: resolved.summary || name, value: resolved.externalValue, isAuto: false };
+    }
+  }
+  return null;
+}
+
+function schemaInlineExample(schema) {
+  if (!schema) return undefined;
+  if (schema.example !== undefined) return schema.example;
+  if (schema.default !== undefined) return schema.default;
+  if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0];
+  return undefined;
+}
+
+function mediaTypeExample(mediaType, spec) {
+  if (!mediaType) return null;
+  const named = firstExampleEntry(mediaType.examples, spec);
+  if (named) return named;
+  if (mediaType.example !== undefined) return { label: 'media example', value: mediaType.example, isAuto: false };
+  const schema = resolveRef(mediaType.schema, spec);
+  const inline = schemaInlineExample(schema);
+  if (inline !== undefined) return { label: 'schema example', value: inline, isAuto: false };
+  return null;
+}
+
+function parameterExample(parameter, spec) {
+  const named = firstExampleEntry(parameter.examples, spec);
+  if (named) return named;
+  if (parameter.example !== undefined) return { label: 'example', value: parameter.example, isAuto: false };
+  const schema = resolveRef(parameter.schema, spec);
+  const inline = schemaInlineExample(schema);
+  if (inline !== undefined) return { label: 'schema example', value: inline, isAuto: false };
   return null;
 }
 
@@ -28,9 +100,8 @@ function generateExample(node, spec, seen = new Set()) {
   }
   const schema = resolveRef(node, spec);
   if (!schema) return null;
-  if (schema.example !== undefined) return schema.example;
-  if (schema.default !== undefined) return schema.default;
-  if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0];
+  const inline = schemaInlineExample(schema);
+  if (inline !== undefined) return inline;
 
   if (schema.type === 'array' || schema.items) {
     return [generateExample(schema.items || {}, spec, seen)];
@@ -100,6 +171,7 @@ function schemaRows(node, spec, { depth = 0, prefix = '', seen = new Set(), requ
 }
 
 function paramRow(p) {
+  const example = parameterExample(p, this);
   return {
     name: p.name,
     in: p.in,
@@ -109,11 +181,17 @@ function paramRow(p) {
     description: p.description || '',
     default: p.default,
     enum: p.enum,
+    example: example ? example.value : undefined,
+    exampleLabel: example ? example.label : '',
   };
 }
 
+function normalizedSecurityDefinitions(spec) {
+  return spec.securityDefinitions || spec.components?.securitySchemes || {};
+}
+
 function buildSecurity(op, spec) {
-  const defs = spec.securityDefinitions || {};
+  const defs = normalizedSecurityDefinitions(spec);
   const reqs = op.security || spec.security || [];
   const out = [];
   for (const req of reqs) {
@@ -130,18 +208,54 @@ function normalizeOperation(spec, path, method, opRaw) {
   for (const raw of opRaw.parameters || []) {
     const p = resolveRef(raw, spec);
     if (p.in === 'body') {
-      parameters.body = { required: !!p.required, schema: p.schema, description: p.description || '' };
+      const content = { schema: p.schema };
+      const example = mediaTypeExample(content, spec);
+      parameters.body = {
+        required: !!p.required,
+        schema: p.schema,
+        description: p.description || '',
+        contentType: 'application/json',
+        example: example ? example.value : generateExample(p.schema, spec),
+        exampleLabel: example ? example.label : 'auto',
+        exampleIsAuto: !example,
+      };
     } else if (parameters[p.in]) {
-      parameters[p.in].push(paramRow(p));
+      parameters[p.in].push(paramRow.call(spec, p));
+    }
+  }
+
+  if (opRaw.requestBody) {
+    const requestBody = resolveRef(opRaw.requestBody, spec) || {};
+    const [contentType, content] = Object.entries(requestBody.content || {})[0] || [];
+    if (contentType && content) {
+      const example = mediaTypeExample(content, spec);
+      parameters.body = {
+        required: !!requestBody.required,
+        schema: content.schema || null,
+        description: requestBody.description || '',
+        contentType,
+        example: example ? example.value : generateExample(content.schema, spec),
+        exampleLabel: example ? example.label : 'auto',
+        exampleIsAuto: !example,
+      };
     }
   }
 
   const responses = Object.entries(opRaw.responses || {})
-    .map(([status, r]) => ({
-      status,
-      description: r.description || '',
-      schema: r.schema || null,
-    }))
+    .map(([status, rawResponse]) => {
+      const response = resolveRef(rawResponse, spec) || {};
+      const [contentType, content] = Object.entries(response.content || {})[0] || [];
+      const example = content ? mediaTypeExample(content, spec) : null;
+      return {
+        status,
+        description: response.description || '',
+        contentType: contentType || 'application/json',
+        schema: content?.schema || response.schema || null,
+        example: example ? example.value : (content?.schema ? generateExample(content.schema, spec) : null),
+        exampleLabel: example ? example.label : 'auto',
+        exampleIsAuto: !example && !!content?.schema,
+      };
+    })
     .sort((a, b) => {
       const na = status2num(a.status), nb = status2num(b.status);
       return na - nb;
@@ -180,7 +294,16 @@ async function loadOpenApiDoc(url) {
   const scheme = (spec.schemes && spec.schemes.includes('https')) ? 'https' : (spec.schemes?.[0] || 'https');
   const host = spec.host || location.host;
   const basePath = spec.basePath || '';
-  const baseUrl = `${scheme}://${host}${basePath}`.replace(/\/$/, '');
+  const derivedBaseUrl = `${scheme}://${host}${basePath}`.replace(/\/$/, '');
+  const servers = Array.isArray(spec.servers) && spec.servers.length
+    ? spec.servers
+      .map((server) => ({
+        url: normalizeServerUrl(server?.url, derivedBaseUrl, server?.variables),
+        description: String(server?.description || '').trim(),
+      }))
+      .filter((server) => server.url)
+    : [{ url: derivedBaseUrl, description: '' }];
+  const baseUrl = servers[0]?.url || derivedBaseUrl;
 
   const tagOrder = (spec.tags || []).map(t => t.name);
   const tagMeta = new Map((spec.tags || []).map(t => [t.name, t]));
@@ -204,7 +327,9 @@ async function loadOpenApiDoc(url) {
     spec,
     info: spec.info || {},
     baseUrl,
-    securityDefinitions: spec.securityDefinitions || {},
+    derivedBaseUrl,
+    servers,
+    securityDefinitions: normalizedSecurityDefinitions(spec),
     groups,
     resolveRef: (node) => resolveRef(node, spec),
     generateExample: (node) => generateExample(node, spec),

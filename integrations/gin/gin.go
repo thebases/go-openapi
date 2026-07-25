@@ -2,6 +2,8 @@ package openapigin
 
 import (
 	"net/http"
+	"path"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	openapi "github.com/thebases/go-openapi/openapi"
@@ -9,6 +11,11 @@ import (
 
 func mountDocs(router gin.IRoutes, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
 	router.GET(documentPath, gin.WrapH(documentHandler))
+	if aliasPath := docsDocumentAliasPath(docsPath, documentPath); aliasPath != "" {
+		// Keep a docs-scoped alias for the default document URL so requests under
+		// /docs do not fall through to the docs asset handler and return 404.
+		router.GET(aliasPath, gin.WrapH(documentHandler))
+	}
 	router.GET(docsPath, gin.WrapH(docsHandler))
 	router.GET(docsPath+"/*asset", gin.WrapH(docsHandler))
 	return nil
@@ -51,4 +58,19 @@ func DELETE(router gin.IRoutes, api *openapi.API, spec openapi.RouteSpec, handle
 
 func MountDocs(router gin.IRoutes, api *openapi.API, docsPath, documentPath string, config openapi.DocsConfig) error {
 	return docs.MountDocs(router, api, docsPath, documentPath, config)
+}
+
+func docsDocumentAliasPath(docsPath, documentPath string) string {
+	if documentPath != "/openapi.json" {
+		return ""
+	}
+	trimmedDocsPath := strings.TrimRight(docsPath, "/")
+	if trimmedDocsPath == "" || trimmedDocsPath == "/" {
+		return ""
+	}
+	aliasPath := trimmedDocsPath + "/" + path.Base(documentPath)
+	if aliasPath == documentPath {
+		return ""
+	}
+	return aliasPath
 }

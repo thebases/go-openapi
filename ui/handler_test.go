@@ -49,17 +49,29 @@ func TestDocsHandlerSupportsBaseUI(t *testing.T) {
 	if !strings.Contains(body, `<title>Merchant API</title>`) {
 		t.Fatalf("expected configured title, got %q", body)
 	}
-	if !strings.Contains(body, `src="js/openapi.js"`) || !strings.Contains(body, `src="js/snippet.js"`) || !strings.Contains(body, `src="js/app.js"`) {
+	if !strings.Contains(body, `src="/docs/js/openapi.js"`) || !strings.Contains(body, `src="/docs/js/snippet.js"`) || !strings.Contains(body, `src="/docs/js/app.js"`) {
 		t.Fatalf("expected base UI shell assets, got %q", body)
 	}
-	if !strings.Contains(body, `appendStylesheet('css/basecoat-maia.cdn.min.css')`) {
-		t.Fatalf("expected base UI fallback stylesheet loader, got %q", body)
+	if !strings.Contains(body, `window.__DOCS_DOCUMENT_URL__ = `) || !strings.Contains(body, `merchant\/openapi.json`) {
+		t.Fatalf("expected base UI document URL bootstrap, got %q", body)
+	}
+	if !strings.Contains(body, `href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat-maia.cdn.min.css"`) {
+		t.Fatalf("expected base UI CDN stylesheet link, got %q", body)
+	}
+	if !strings.Contains(body, `onerror="this.onerror=null;this.href='\/docs/css/basecoat-maia.cdn.min.css';"`) {
+		t.Fatalf("expected base UI local stylesheet fallback, got %q", body)
+	}
+	if !strings.Contains(body, `href="/docs/css/app.css"`) {
+		t.Fatalf("expected base UI app stylesheet link, got %q", body)
+	}
+	if strings.Index(body, `basecoat-maia.cdn.min.css`) > strings.Index(body, `/docs/css/app.css`) {
+		t.Fatalf("expected app.css link to appear after Basecoat, got %q", body)
 	}
 	if strings.Contains(body, `type="module"`) {
 		t.Fatalf("expected base UI app shell to use a plain script tag, got %q", body)
 	}
-	if !strings.Contains(body, `cdnLink.addEventListener('load', appendAppCss`) {
-		t.Fatalf("expected base UI to append app.css after Basecoat load, got %q", body)
+	if strings.Contains(body, `appendAppCss`) {
+		t.Fatalf("expected base UI to stop relying on runtime stylesheet append order, got %q", body)
 	}
 }
 func TestDocsHandlerSupportsScalarProvider(t *testing.T) {
@@ -144,10 +156,5 @@ func TestDocsHandlerRejectsNestedAssetTraversal(t *testing.T) {
 		t.Fatalf("expected 404 for traversal path, got %d", recorder.Code)
 	}
 }
-
-
-
-
-
 
 
