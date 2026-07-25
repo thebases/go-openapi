@@ -22,11 +22,12 @@ func mountDocs(router chi.Router, docsPath, documentPath string, docsHandler, do
 }
 
 var routes = core.RouteRegistrar[chi.Router, http.HandlerFunc]{
-	Register: func(router chi.Router, method, path string, handlers ...http.HandlerFunc) {
+	Register: func(router chi.Router, method, path string, handlers ...http.HandlerFunc) error {
 		if len(handlers) == 0 {
-			return
+			return nil
 		}
 		router.Method(method, path, handlers[0])
+		return nil
 	},
 	MountDocs: mountDocs,
 }

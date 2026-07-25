@@ -23,7 +23,7 @@ Example modules under `examples/*` are not release artifacts.
 
 ## Pre-tag checklist
 
-1. Run the CI workflow in `.github/workflows/release-readiness.yml` and confirm the root module passes.
+1. Run the CI workflow in `.github/workflows/release-readiness.yml` and confirm the root module plus the nested example modules pass.
 2. Run `go mod tidy` in the root module, then commit any `go.mod` or `go.sum` drift.
 3. Read `README.md` as a new consumer and confirm every documented import path exists exactly as written.
 4. Confirm the docs-serving package path is still `github.com/thebases/go-openapi/ui`.
@@ -50,6 +50,8 @@ go get github.com/thebases/go-openapi/integrations/chi@v0.0.1
 ```
 
 Repeat the same pattern for `echo`, `fiber`, `gin`, and `iris` as needed.
+
+Validate the nested example modules from their own directories because they remain separate modules with local `replace` directives.
 
 ## Release notes
 

@@ -14,7 +14,7 @@ import (
 // RouteRegistrar keeps OpenAPI registration and native route mounting in one place
 // so framework integrations only provide the framework-specific bind step.
 type RouteRegistrar[Router any, Handler any] struct {
-	Register  func(router Router, method, path string, handlers ...Handler)
+	Register  func(router Router, method, path string, handlers ...Handler) error
 	MountDocs func(router Router, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error
 }
 
@@ -49,8 +49,7 @@ func (registrar RouteRegistrar[Router, Handler]) Handle(router Router, api *API,
 		return err
 	}
 
-	registrar.Register(router, spec.Method, spec.Path, handlers...)
-	return nil
+	return registrar.Register(router, spec.Method, spec.Path, handlers...)
 }
 
 func (registrar RouteRegistrar[Router, Handler]) GET(router Router, api *API, spec RouteSpec, handlers ...Handler) error {

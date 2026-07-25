@@ -22,8 +22,9 @@ func mountDocs(router gin.IRoutes, docsPath, documentPath string, docsHandler, d
 }
 
 var routes = core.RouteRegistrar[gin.IRoutes, gin.HandlerFunc]{
-	Register: func(router gin.IRoutes, method, path string, handlers ...gin.HandlerFunc) {
+	Register: func(router gin.IRoutes, method, path string, handlers ...gin.HandlerFunc) error {
 		router.Handle(method, path, handlers...)
+		return nil
 	},
 	MountDocs: mountDocs,
 }
