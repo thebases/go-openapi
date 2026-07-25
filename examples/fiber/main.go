@@ -14,7 +14,7 @@ func main() {
 		openapi.WithTitle("Fiber Example API"),
 		openapi.WithDescription("descriptions/api.md"),
 		openapi.WithVersion("1.0.0"),
-		openapi.WithDocStyle(openapi.DocsScalar),
+		openapi.WithDocStyle(openapi.DocsBase),
 	)
 	if err := doc.RegisterSchema("Merchant", openapi.InlineSchema(&openapi.Schema{
 		Type:        "object",

@@ -24,7 +24,7 @@ func TestDocsHandlerFallsBackToSwaggerUI(t *testing.T) {
 	if !strings.Contains(body, `url: "/openapi.json"`) {
 		t.Fatalf("expected rewritten document URL, got %q", body)
 	}
-	if !strings.Contains(body, "<div id=\"swagger-ui\"></div>") {
+	if !strings.Contains(body, `<div id="swagger-ui"></div>`) {
 		t.Fatalf("expected embedded swagger container, got %q", body)
 	}
 }
@@ -43,17 +43,25 @@ func TestDocsHandlerSupportsBaseUI(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/docs", nil))
 
 	body := recorder.Body.String()
-	if !strings.Contains(body, `url: "/merchant/openapi.json"`) {
-		t.Fatalf("expected base UI to receive document URL, got %q", body)
+	if !strings.Contains(body, `Base API`) || !strings.Contains(body, `Loading API documentation`) {
+		t.Fatalf("expected base UI shell content, got %q", body)
 	}
-	if !strings.Contains(body, "<title>Merchant API</title>") {
+	if !strings.Contains(body, `<title>Merchant API</title>`) {
 		t.Fatalf("expected configured title, got %q", body)
 	}
-	if !strings.Contains(body, "base-docs-shell") || !strings.Contains(body, "#operation-") {
-		t.Fatalf("expected base UI layout script, got %q", body)
+	if !strings.Contains(body, `src="js/openapi.js"`) || !strings.Contains(body, `src="js/snippet.js"`) || !strings.Contains(body, `src="js/app.js"`) {
+		t.Fatalf("expected base UI shell assets, got %q", body)
+	}
+	if !strings.Contains(body, `appendStylesheet('css/basecoat-maia.cdn.min.css')`) {
+		t.Fatalf("expected base UI fallback stylesheet loader, got %q", body)
+	}
+	if strings.Contains(body, `type="module"`) {
+		t.Fatalf("expected base UI app shell to use a plain script tag, got %q", body)
+	}
+	if !strings.Contains(body, `cdnLink.addEventListener('load', appendAppCss`) {
+		t.Fatalf("expected base UI to append app.css after Basecoat load, got %q", body)
 	}
 }
-
 func TestDocsHandlerSupportsScalarProvider(t *testing.T) {
 	handler, err := DocsHandler(Config{
 		Provider:    Scalar,
@@ -69,16 +77,16 @@ func TestDocsHandlerSupportsScalarProvider(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/docs", nil))
 
 	body := recorder.Body.String()
-	if !strings.Contains(body, `window.__DOCS_DOCUMENT_URL__ = `) || !strings.Contains(body, `openapi.json`) {
+	if !strings.Contains(body, `window.__DOCS_DOCUMENT_URL__ = `) || !strings.Contains(body, `scalar\/openapi.json`) {
 		t.Fatalf("expected scalar UI to receive docs-relative document URL, got %q", body)
 	}
-	if !strings.Contains(body, "<title>Scalar API</title>") {
+	if !strings.Contains(body, `<title>Scalar API</title>`) {
 		t.Fatalf("expected configured title, got %q", body)
 	}
-	if !strings.Contains(body, "Scalar.createApiReference('#app'") {
+	if !strings.Contains(body, `Scalar.createApiReference('#app'`) {
 		t.Fatalf("expected scalar UI initializer, got %q", body)
 	}
-	if !strings.Contains(body, "https://cdn.jsdelivr.net/npm/@scalar/api-reference") {
+	if !strings.Contains(body, `https://cdn.jsdelivr.net/npm/@scalar/api-reference`) {
 		t.Fatalf("expected scalar CDN script, got %q", body)
 	}
 }
@@ -103,6 +111,26 @@ func TestDocsHandlerServesEmbeddedImageAssets(t *testing.T) {
 	}
 }
 
+func TestDocsHandlerServesNestedBaseAssets(t *testing.T) {
+	handler, err := DocsHandler(Config{Provider: Base})
+	if err != nil {
+		t.Fatalf("create docs handler: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/js/app.js", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected OK for base asset, got %d", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/javascript; charset=utf-8" {
+		t.Fatalf("expected stable ES module content type, got %q", got)
+	}
+	if !strings.Contains(recorder.Body.String(), "const SPEC_URL =") || !strings.Contains(recorder.Body.String(), "loadOpenApiDoc") {
+		t.Fatalf("expected base app bundle script, got %q", recorder.Body.String())
+	}
+}
+
 func TestDocsHandlerRejectsNestedAssetTraversal(t *testing.T) {
 	handler, err := DocsHandler(Config{Provider: Swagger})
 	if err != nil {
@@ -110,9 +138,16 @@ func TestDocsHandlerRejectsNestedAssetTraversal(t *testing.T) {
 	}
 
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/theme/swagger/logo.svg", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/../logo.svg", nil))
 
 	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for nested asset path, got %d", recorder.Code)
+		t.Fatalf("expected 404 for traversal path, got %d", recorder.Code)
 	}
 }
+
+
+
+
+
+
+
