@@ -277,7 +277,7 @@ err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.js
 | Setting | Description | Default | When to change |
 |---|---|---|---|
 | `WithTitle(...)` | Sets the API title shown in the generated document and UI | `API` | Change it for every real application |
-| `WithVersion(...)` | Sets the API version string | `0.0.0` | Change it to your release or schema version |
+| `WithVersion(...)` | Sets the API version string | `0.0.1` | Change it to your release or schema version |
 | `WithDescription(...)` | Adds a description to the API metadata | empty | Change it when you want richer docs metadata |
 | `WithServer(url, description)` | Adds a server entry to the OpenAPI document | none | Change it when you want the document to advertise one or more environments |
 | `WithDocStyle(...)` | Enables docs auto-mounting and selects the default UI provider | disabled | Change it when you want `/docs` and `/openapi.json` exposed automatically |
@@ -401,5 +401,3 @@ A: Use it when you need a custom docs route, a custom JSON route, or a provider 
 - Start with [README.md](../README.md)
 - Use the example modules under `examples/*` to validate expected setup
 - If nested modules fail to resolve locally, retry in a network-enabled environment
-
-

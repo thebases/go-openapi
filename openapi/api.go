@@ -61,7 +61,7 @@ func New(options ...Option) *API {
 			OpenAPI: "3.0.3",
 			Info: Info{
 				Title:   "API",
-				Version: "0.0.0",
+				Version: "0.0.1",
 			},
 			Paths: map[string]*PathItem{},
 			Components: &Components{
