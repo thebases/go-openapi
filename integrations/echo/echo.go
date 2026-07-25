@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
-	openapi "github.com/thebases/go-openapi/openapi"
+	core "github.com/thebases/go-openapi/core"
 )
 
 type Router interface {
@@ -26,7 +26,7 @@ func mountDocs(router Router, docsPath, documentPath string, docsHandler, docume
 	return nil
 }
 
-var routes = openapi.RouteRegistrar[Router, echo.HandlerFunc]{
+var routes = core.RouteRegistrar[Router, echo.HandlerFunc]{
 	Register: func(router Router, method, path string, handlers ...echo.HandlerFunc) {
 		if len(handlers) == 0 {
 			return
@@ -36,35 +36,35 @@ var routes = openapi.RouteRegistrar[Router, echo.HandlerFunc]{
 	MountDocs: mountDocs,
 }
 
-var docs = openapi.DocsRegistrar[Router]{
+var docs = core.DocsRegistrar[Router]{
 	Mount: mountDocs,
 }
 
-func Handle(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+func Handle(router Router, api *core.API, spec core.RouteSpec, handlers ...echo.HandlerFunc) error {
 	return routes.Handle(router, api, spec, handlers...)
 }
 
-func GET(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+func GET(router Router, api *core.API, spec core.RouteSpec, handlers ...echo.HandlerFunc) error {
 	return routes.GET(router, api, spec, handlers...)
 }
 
-func POST(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+func POST(router Router, api *core.API, spec core.RouteSpec, handlers ...echo.HandlerFunc) error {
 	return routes.POST(router, api, spec, handlers...)
 }
 
-func PUT(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+func PUT(router Router, api *core.API, spec core.RouteSpec, handlers ...echo.HandlerFunc) error {
 	return routes.PUT(router, api, spec, handlers...)
 }
 
-func PATCH(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+func PATCH(router Router, api *core.API, spec core.RouteSpec, handlers ...echo.HandlerFunc) error {
 	return routes.PATCH(router, api, spec, handlers...)
 }
 
-func DELETE(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+func DELETE(router Router, api *core.API, spec core.RouteSpec, handlers ...echo.HandlerFunc) error {
 	return routes.DELETE(router, api, spec, handlers...)
 }
 
-func MountDocs(router Router, api *openapi.API, docsPath, documentPath string, config openapi.DocsConfig) error {
+func MountDocs(router Router, api *core.API, docsPath, documentPath string, config core.DocsConfig) error {
 	return docs.MountDocs(router, api, docsPath, documentPath, config)
 }
 

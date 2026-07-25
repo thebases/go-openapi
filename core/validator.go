@@ -1,4 +1,4 @@
-package openapi
+package core
 
 func ValidateDocument(d *Document) error {
 	if d == nil {

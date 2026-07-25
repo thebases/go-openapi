@@ -1,4 +1,4 @@
-package openapi
+package core
 
 type PathItem struct {
 	Summary     string                 `json:"summary,omitempty"`

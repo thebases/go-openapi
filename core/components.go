@@ -1,4 +1,4 @@
-package openapi
+package core
 
 type Components struct {
 	Schemas         map[string]*SchemaOrReference         `json:"schemas,omitempty"`

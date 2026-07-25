@@ -11,7 +11,7 @@
 
 ## Overview
 
-`go-openapi` helps you generate an OpenAPI 3.0 document in Go and expose a documentation UI for that document. You can use it with the core `openapi` package only, or pair it with a framework integration for Gin, Fiber, Chi, Echo, or Iris.
+`go-openapi` helps you generate an OpenAPI 3.0 document in Go and expose a documentation UI for that document. You can use it with the `core` package only, or pair it with a framework integration for Gin, Fiber, Chi, Echo, or Iris.
 
 This guide is for consumers of the module. It focuses on what to import, how to get your first API document working, how to expose `/docs`, and what to check when something does not behave as expected.
 
@@ -32,7 +32,7 @@ Before you start, make sure you have:
 - [ ] Permission to add Go module dependencies to your application
 - [ ] At least one API endpoint you want to describe in OpenAPI
 
-If you are using a framework integration module for the first time, you may need to run `go mod tidy` in a network-enabled environment so Go can download that framework's dependencies.
+If you are using a framework integration package for the first time, you may need to run `go mod tidy` in a network-enabled environment so Go can download that framework's dependencies.
 
 ---
 
@@ -43,48 +43,48 @@ Follow these steps for the fastest path to a working OpenAPI document and docs p
 1. Add the core module import to your application:
 
 ```go
-import openapi "github.com/thebases/go-openapi/openapi"
+import core "github.com/thebases/go-openapi/core"
 ```
 
 2. Create one shared API document instance during application startup:
 
 ```go
-api := openapi.New(
-    openapi.WithTitle("Merchant API"),
-    openapi.WithVersion("1.0.0"),
-    openapi.WithDescription("Merchant management endpoints"),
-    openapi.WithServer("https://api.example.com", "Production"),
-    openapi.WithDocStyle(openapi.DocsSwagger),
+api := core.New(
+    core.WithTitle("Merchant API"),
+    core.WithVersion("1.0.0"),
+    core.WithDescription("Merchant management endpoints"),
+    core.WithServer("https://api.example.com", "Production"),
+    core.WithDocStyle(core.DocsSwagger),
 )
 ```
 
 3. Register the response schema, then add at least one operation:
 
 ```go
-if err := api.RegisterSchema("Merchant", openapi.InlineSchema(&openapi.Schema{
+if err := api.RegisterSchema("Merchant", core.InlineSchema(&core.Schema{
     Type: "object",
-    Properties: map[string]*openapi.SchemaOrReference{
-        "id":   openapi.StringSchema(),
-        "name": openapi.StringSchema(),
+    Properties: map[string]*core.SchemaOrReference{
+        "id":   core.StringSchema(),
+        "name": core.StringSchema(),
     },
     Required: []string{"id", "name"},
 })); err != nil {
     panic(err)
 }
 
-err := api.AddOperation("GET", "/merchants/{id}", openapi.Operation{
+err := api.AddOperation("GET", "/merchants/{id}", core.Operation{
     OperationID: "getMerchant",
     Summary:     "Get merchant",
-    Parameters: []openapi.ParameterOrReference{
-        openapi.PathParameter("id", openapi.StringSchema()),
+    Parameters: []core.ParameterOrReference{
+        core.PathParameter("id", core.StringSchema()),
     },
-    Responses: map[string]openapi.ResponseOrReference{
-        "200": openapi.JSONResponse("Merchant returned", openapi.RefSchema("Merchant")),
+    Responses: map[string]core.ResponseOrReference{
+        "200": core.JSONResponse("Merchant returned", core.RefSchema("Merchant")),
     },
 })
 ```
 
-If you use `openapi.RefSchema("Merchant")`, register that schema first so the generated document contains `#/components/schemas/Merchant`.
+If you use `core.RefSchema("Merchant")`, register that schema first so the generated document contains `#/components/schemas/Merchant`.
 
 4. Start your application.
 
@@ -105,7 +105,7 @@ Use the module that matches the task you are trying to complete.
 
 | If you want to... | Use this import path |
 |---|---|
-| Build and export the OpenAPI document | `github.com/thebases/go-openapi/openapi` |
+| Build and export the OpenAPI document | `github.com/thebases/go-openapi/core` |
 | Serve the docs UI directly as `net/http` handlers | `github.com/thebases/go-openapi/ui` |
 | Register Gin routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/gin` |
 | Register Fiber routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/fiber` |
@@ -114,6 +114,8 @@ Use the module that matches the task you are trying to complete.
 | Register Iris routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/iris` |
 
 **Important:** the docs-serving directory path is `ui`, but the Go package name is `docs`.
+
+**Important:** `core` replaces the old public import path `github.com/thebases/go-openapi/openapi`. Integration imports stay under `github.com/thebases/go-openapi/integrations/*`, but they now resolve from the same root module release instead of nested module tags.
 
 Example:
 
@@ -134,18 +136,18 @@ If you use one of the supported framework integrations, you can register the run
 ```go
 import (
     openapigin "github.com/thebases/go-openapi/integrations/gin"
-    openapi "github.com/thebases/go-openapi/openapi"
+    core "github.com/thebases/go-openapi/core"
 )
 ```
 
-2. Create an `openapi.Operation` value.
+2. Create an `core.Operation` value.
 3. Register the route:
 
 ```go
 err := openapigin.GET(
     router,
     api,
-    openapi.Route("/merchants/:id", operation),
+    core.Route("/merchants/:id", operation),
     getMerchant,
 )
 ```
@@ -158,7 +160,7 @@ err := openapigin.GET(
 err := openapifiber.GET(
     app,
     api,
-    openapi.Route("/merchants/:id", operation),
+    core.Route("/merchants/:id", operation),
     getMerchant,
 )
 ```
@@ -169,7 +171,7 @@ err := openapifiber.GET(
 err := openapichi.GET(
     router,
     api,
-    openapi.Route("/merchants/{id}", operation),
+    core.Route("/merchants/{id}", operation),
     getMerchant,
 )
 ```
@@ -180,7 +182,7 @@ err := openapichi.GET(
 err := openapiecho.GET(
     e,
     api,
-    openapi.Route("/merchants/:id", operation),
+    core.Route("/merchants/:id", operation),
     getMerchant,
 )
 ```
@@ -191,7 +193,7 @@ err := openapiecho.GET(
 err := openapiiris.GET(
     app,
     api,
-    openapi.Route("/merchants/{id:int}", operation),
+    core.Route("/merchants/{id:int}", operation),
     getMerchant,
 )
 ```
@@ -207,8 +209,8 @@ Use this approach when you want full control over where the docs endpoints are m
 1. Build a docs handler:
 
 ```go
-handler, err := openapi.Docs.Handler(openapi.DocsConfig{
-    Provider:    openapi.DocsSwagger,
+handler, err := core.Docs.Handler(core.DocsConfig{
+    Provider:    core.DocsSwagger,
     Title:       "Merchant API",
     DocumentURL: "/openapi.json",
 })
@@ -217,7 +219,7 @@ handler, err := openapi.Docs.Handler(openapi.DocsConfig{
 2. Build a document JSON handler:
 
 ```go
-documentHandler := openapi.Docs.DocumentHandler(api)
+documentHandler := core.Docs.DocumentHandler(api)
 ```
 
 3. Mount both handlers in your router.
@@ -244,13 +246,13 @@ handler, err := docs.DocsHandler(docs.Config{
 
 ## How automatic docs mounting works
 
-If you set `openapi.WithDocStyle(...)` when you create the API instance, docs mounting is enabled automatically.
+If you set `core.WithDocStyle(...)` when you create the API instance, docs mounting is enabled automatically.
 
 ```go
-api := openapi.New(
-    openapi.WithTitle("Merchant API"),
-    openapi.WithVersion("1.0.0"),
-    openapi.WithDocStyle(openapi.DocsSwagger),
+api := core.New(
+    core.WithTitle("Merchant API"),
+    core.WithVersion("1.0.0"),
+    core.WithDocStyle(core.DocsSwagger),
 )
 ```
 
@@ -264,8 +266,8 @@ Use manual `MountDocs(...)` only when you need a custom docs path or a provider 
 Example:
 
 ```go
-err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.json", openapi.DocsConfig{
-    Provider: openapi.DocsScalar,
+err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.json", core.DocsConfig{
+    Provider: core.DocsScalar,
     Title:    "Internal Merchant API",
 })
 ```
@@ -287,13 +289,13 @@ err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.js
 
 ---
 
-## Understanding the published modules
+## Understanding the published packages
 
 | Module type | What it means |
 |---|---|
-| Root public API: `openapi` | The main package for document creation, schema registration, JSON output, and facade helpers |
+| Root public API: `core` | The main package for document creation, schema registration, JSON output, and facade helpers |
 | Docs package: `ui` | The docs-serving package path; imported in Go code as `docs` |
-| Integration modules: `integrations/*` | Supported nested modules for framework-specific route registration |
+| Integration packages: `integrations/*` | Supported root-module packages for framework-specific route registration |
 | Example modules: `examples/*` | Local examples for learning and validation; not supported as installable release surfaces |
 
 ---
@@ -304,7 +306,7 @@ err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.js
 **Why it happens:** docs auto-mounting only happens when `WithDocStyle(...)` is enabled or when you mount docs handlers manually.
 
 **What to do:**
-1. Check that your API instance was created with `openapi.WithDocStyle(...)`.
+1. Check that your API instance was created with `core.WithDocStyle(...)`.
 2. If not, either add `WithDocStyle(...)` or mount the docs handlers yourself.
 3. Restart the application and open `/docs` again.
 
@@ -327,12 +329,12 @@ err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.js
 
 ---
 
-### "`go mod tidy` fails for an integration module"
-**Why it happens:** nested integration modules pull framework-specific dependencies and may need network access to resolve them.
+### "`go mod tidy` fails for an integration package"
+**Why it happens:** framework-specific dependencies may need network access to resolve the first time you use an integration package.
 
 **What to do:**
 1. Run `go mod tidy` in a network-enabled environment.
-2. Run it inside the specific integration module directory you are using.
+2. Run it in your application module after adding the import you need.
 3. Re-run your build or tests after the dependency download completes.
 
 ---
@@ -350,10 +352,10 @@ err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.js
 ## Frequently asked questions
 
 **Q: Which package should I import first?**
-A: Start with `github.com/thebases/go-openapi/openapi`. Add `ui` or an `integrations/*` module only if you need docs serving or framework-specific route registration.
+A: Start with `github.com/thebases/go-openapi/core`. Add `ui` or an `integrations/*` package only if you need docs serving or framework-specific route registration.
 
 **Q: Do I need to use a framework integration?**
-A: No. You can use `openapi` by itself and register operations manually.
+A: No. You can use `core` by itself and register operations manually.
 
 **Q: Is `ui` a different package from `docs`?**
 A: The directory path is `ui`, but the Go package name is `docs`.
@@ -361,7 +363,7 @@ A: The directory path is `ui`, but the Go package name is `docs`.
 **Q: Are the example modules supported for production imports?**
 A: No. `examples/*` are for local learning and validation only.
 
-**Q: What are the supported integration modules?**
+**Q: What are the supported integration packages?**
 A: `integrations/chi`, `integrations/echo`, `integrations/fiber`, `integrations/gin`, and `integrations/iris`.
 
 **Q: When should I use `MountDocs(...)`?**
@@ -382,9 +384,9 @@ A: Use it when you need a custom docs route, a custom JSON route, or a provider 
 
 | Provider | Usage |
 |---|---|
-| `openapi.DocsSwagger` | Standard Swagger UI |
-| `openapi.DocsBase` | Base bundled UI |
-| `openapi.DocsScalar` | Scalar-based UI |
+| `core.DocsSwagger` | Standard Swagger UI |
+| `core.DocsBase` | Base bundled UI |
+| `core.DocsScalar` | Scalar-based UI |
 
 ### Related files in this repository
 
@@ -400,4 +402,4 @@ A: Use it when you need a custom docs route, a custom JSON route, or a provider 
 
 - Start with [README.md](../README.md)
 - Use the example modules under `examples/*` to validate expected setup
-- If nested modules fail to resolve locally, retry in a network-enabled environment
+- If framework dependencies fail to resolve locally, retry in a network-enabled environment

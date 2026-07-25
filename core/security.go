@@ -1,4 +1,4 @@
-package openapi
+package core
 
 type SecurityScheme struct {
 	Type             string         `json:"type"`

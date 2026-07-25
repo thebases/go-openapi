@@ -1,4 +1,4 @@
-package openapi
+package core
 
 type Parameter struct {
 	Name            string                         `json:"name"`
