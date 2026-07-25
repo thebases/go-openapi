@@ -159,3 +159,25 @@ func TestPrepareDocsMountAllowsPerMountProviderOverride(t *testing.T) {
 		t.Fatalf("expected scalar docs to use docs-relative document URL, got %q", body)
 	}
 }
+
+func TestPrepareDocsMountServesDocsAssetsUnderMountPath(t *testing.T) {
+	api := New(WithTitle("Merchant API"), WithVersion("1.0.0"), WithDocStyle(DocsSwagger))
+	_, _, docsHandler, _, err := prepareDocsMount(api, "/docs", "/openapi.json", DocsConfig{})
+	if err != nil {
+		t.Fatalf("prepare docs mount: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/docs/logo.svg", nil)
+	docsHandler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected OK for mounted docs asset, got %d", recorder.Code)
+	}
+	if !strings.Contains(recorder.Header().Get("Content-Type"), "image/svg+xml") {
+		t.Fatalf("expected svg content type, got %q", recorder.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(recorder.Body.String(), "<svg") {
+		t.Fatalf("expected svg body, got %q", recorder.Body.String())
+	}
+}

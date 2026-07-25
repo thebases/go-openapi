@@ -33,28 +33,28 @@ var docs = openapi.DocsRegistrar[Router]{
 	Mount: mountDocs,
 }
 
-func Handle(router Router, api *openapi.API, method, path string, operation openapi.Operation, handlers ...echo.HandlerFunc) error {
-	return routes.Handle(router, api, method, path, operation, handlers...)
+func Handle(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+	return routes.Handle(router, api, spec, handlers...)
 }
 
-func GET(router Router, api *openapi.API, path string, operation openapi.Operation, handlers ...echo.HandlerFunc) error {
-	return routes.GET(router, api, path, operation, handlers...)
+func GET(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+	return routes.GET(router, api, spec, handlers...)
 }
 
-func POST(router Router, api *openapi.API, path string, operation openapi.Operation, handlers ...echo.HandlerFunc) error {
-	return routes.POST(router, api, path, operation, handlers...)
+func POST(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+	return routes.POST(router, api, spec, handlers...)
 }
 
-func PUT(router Router, api *openapi.API, path string, operation openapi.Operation, handlers ...echo.HandlerFunc) error {
-	return routes.PUT(router, api, path, operation, handlers...)
+func PUT(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+	return routes.PUT(router, api, spec, handlers...)
 }
 
-func PATCH(router Router, api *openapi.API, path string, operation openapi.Operation, handlers ...echo.HandlerFunc) error {
-	return routes.PATCH(router, api, path, operation, handlers...)
+func PATCH(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+	return routes.PATCH(router, api, spec, handlers...)
 }
 
-func DELETE(router Router, api *openapi.API, path string, operation openapi.Operation, handlers ...echo.HandlerFunc) error {
-	return routes.DELETE(router, api, path, operation, handlers...)
+func DELETE(router Router, api *openapi.API, spec openapi.RouteSpec, handlers ...echo.HandlerFunc) error {
+	return routes.DELETE(router, api, spec, handlers...)
 }
 
 func MountDocs(router Router, api *openapi.API, docsPath, documentPath string, config openapi.DocsConfig) error {

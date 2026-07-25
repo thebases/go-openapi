@@ -15,6 +15,16 @@ func main() {
 		openapi.WithVersion("1.0.0"),
 		openapi.WithDocStyle(openapi.DocsSwagger),
 	)
+	if err := docs.RegisterSchema("Merchant", openapi.InlineSchema(&openapi.Schema{
+		Type: "object",
+		Properties: map[string]*openapi.SchemaOrReference{
+			"id":   openapi.StringSchema(),
+			"name": openapi.StringSchema(),
+		},
+		Required: []string{"id", "name"},
+	})); err != nil {
+		log.Fatal(err)
+	}
 
 	err := api.GET(router, docs, openapi.Route("/merchants/:id", openapi.Operation{
 		OperationID: "getMerchant",

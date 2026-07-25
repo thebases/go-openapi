@@ -4,6 +4,7 @@ import (
 	"embed"
 	"html/template"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
 	"strings"
@@ -50,7 +51,20 @@ func DocsHandler(config Config) (http.Handler, error) {
 		return nil, err
 	}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assetName, isAssetRequest := resolveUIRequest(r, config.DocsPath)
+		if isAssetRequest {
+			if serveUIAsset(w, assetName, resolveUIDir(config.Provider)) {
+				return
+			}
+			http.NotFound(w, r)
+			return
+		}
+		if assetName != "" {
+			http.NotFound(w, r)
+			return
+		}
+
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(html))
 	}), nil
@@ -256,3 +270,45 @@ func splitURLPath(value string) []string {
 	return segments
 }
 
+func resolveUIRequest(r *http.Request, docsPath string) (string, bool) {
+	if r == nil || r.URL == nil {
+		return "", false
+	}
+
+	cleanedPath := path.Clean("/" + r.URL.Path)
+	docsRoot := path.Clean("/" + docsPath)
+	if docsRoot == "." {
+		docsRoot = "/"
+	}
+
+	switch {
+	case cleanedPath == "/" || cleanedPath == docsRoot:
+		return "", false
+	case strings.HasPrefix(cleanedPath, docsRoot+"/"):
+		cleanedPath = strings.TrimPrefix(cleanedPath, docsRoot)
+	}
+
+	assetName := strings.TrimPrefix(cleanedPath, "/")
+	if assetName == "" {
+		return "", false
+	}
+	if strings.Contains(assetName, "/") {
+		return assetName, false
+	}
+	return assetName, true
+}
+
+func serveUIAsset(w http.ResponseWriter, assetName, uiDir string) bool {
+	raw, err := fs.ReadFile(uiFS, uiDir+"/"+assetName)
+	if err != nil {
+		return false
+	}
+
+	contentType := mime.TypeByExtension(path.Ext(assetName))
+	if contentType == "" {
+		contentType = http.DetectContentType(raw)
+	}
+	w.Header().Set("Content-Type", contentType)
+	_, _ = w.Write(raw)
+	return true
+}

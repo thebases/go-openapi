@@ -1,0 +1,48 @@
+name: Release Readiness
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  verify-modules:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - .
+          - integrations/chi
+          - integrations/echo
+          - integrations/fiber
+          - integrations/gin
+          - integrations/iris
+          - examples/chi
+          - examples/fiber
+          - examples/gin
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ matrix.module }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+
+      - name: Tidy module
+        run: go mod tidy
+
+      - name: Assert tidy state
+        run: git diff --exit-code -- go.mod go.sum
+
+      - name: List packages
+        run: go list ./...
+
+      - name: Run tests
+        run: go test ./...

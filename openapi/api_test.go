@@ -11,7 +11,19 @@ func TestAPIAddOperation(t *testing.T) {
 		WithVersion("1.0.0"),
 	)
 
-	err := api.AddOperation(http.MethodGet, "/merchants/{id}", Operation{
+	err := api.RegisterSchema("Merchant", InlineSchema(&Schema{
+		Type: "object",
+		Properties: map[string]*SchemaOrReference{
+			"id":   StringSchema(),
+			"name": StringSchema(),
+		},
+		Required: []string{"id", "name"},
+	}))
+	if err != nil {
+		t.Fatalf("register schema: %v", err)
+	}
+
+	err = api.AddOperation(http.MethodGet, "/merchants/{id}", Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
 		Parameters: []ParameterOrReference{
@@ -31,6 +43,9 @@ func TestAPIAddOperation(t *testing.T) {
 	}
 	if doc.Paths["/merchants/{id}"] == nil || doc.Paths["/merchants/{id}"].Get == nil {
 		t.Fatalf("expected GET operation to be registered")
+	}
+	if doc.Components == nil || doc.Components.Schemas["Merchant"] == nil {
+		t.Fatalf("expected Merchant schema to be registered")
 	}
 }
 

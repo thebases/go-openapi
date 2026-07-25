@@ -1,6 +1,7 @@
 package docs
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -76,5 +77,39 @@ func TestDocsHandlerSupportsScalarProvider(t *testing.T) {
 	}
 	if !strings.Contains(body, "https://cdn.jsdelivr.net/npm/@scalar/api-reference") {
 		t.Fatalf("expected scalar CDN script, got %q", body)
+	}
+}
+
+func TestDocsHandlerServesEmbeddedImageAssets(t *testing.T) {
+	handler, err := DocsHandler(Config{Provider: Swagger})
+	if err != nil {
+		t.Fatalf("create docs handler: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/logo.svg", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected OK for embedded asset, got %d", recorder.Code)
+	}
+	if !strings.Contains(recorder.Header().Get("Content-Type"), "image/svg+xml") {
+		t.Fatalf("expected svg content type, got %q", recorder.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(recorder.Body.String(), "<svg") {
+		t.Fatalf("expected svg body, got %q", recorder.Body.String())
+	}
+}
+
+func TestDocsHandlerRejectsNestedAssetTraversal(t *testing.T) {
+	handler, err := DocsHandler(Config{Provider: Swagger})
+	if err != nil {
+		t.Fatalf("create docs handler: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/theme/swagger/logo.svg", nil))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for nested asset path, got %d", recorder.Code)
 	}
 }
