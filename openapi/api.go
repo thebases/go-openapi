@@ -1,7 +1,6 @@
 package openapi
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -76,6 +75,10 @@ func New(options ...Option) *API {
 	for _, option := range options {
 		option(api)
 	}
+
+	// Export the initial document as soon as the API is constructed so callers
+	// get both artifact files without having to trigger a separate render step.
+	_, _ = api.renderGeneratedDocuments()
 
 	return api
 }
@@ -174,13 +177,7 @@ func (api *API) Document() Document {
 }
 
 func (api *API) JSON() ([]byte, error) {
-	api.mu.Lock()
-	defer api.mu.Unlock()
-
-	if err := resolveDocumentDescriptions(&api.doc); err != nil {
-		return nil, err
-	}
-	return json.MarshalIndent(api.doc, "", "  ")
+	return api.renderGeneratedDocuments()
 }
 
 func (api *API) docsTitle() string {
