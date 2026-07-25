@@ -90,11 +90,35 @@ apiDoc := openapi.New(
 err := api.GET(app, apiDoc, "/merchants/:id", operation, getMerchant)
 ```
 
+Echo:
+
+```go
+import (
+    api "github.com/thebases/go-openapi/integrations/echo"
+    openapi "github.com/thebases/go-openapi/openapi"
+)
+
+err := api.GET(e, apiDoc, "/merchants/:id", operation, getMerchant)
+```
+
+Iris:
+
+```go
+import (
+    api "github.com/thebases/go-openapi/integrations/iris"
+    openapi "github.com/thebases/go-openapi/openapi"
+)
+
+err := api.GET(app, apiDoc, "/merchants/{id:int}", operation, getMerchant)
+```
+
 Compatibility facade:
 
 ```go
 err := openapi.Gin.GET(router, apiDoc, "/merchants/:id", operation, getMerchant)
 err := openapi.Fiber.GET(app, apiDoc, "/merchants/:id", operation, getMerchant)
+err := openapi.Echo.GET(e, apiDoc, "/merchants/:id", operation, getMerchant)
+err := openapi.Iris.GET(app, apiDoc, "/merchants/{id:int}", operation, getMerchant)
 ```
 
 Chi:
@@ -103,7 +127,7 @@ Chi:
 err := openapi.Chi.GET(router, api, "/merchants/{id}", operation, getMerchant)
 ```
 
-`openapi.docs` and `openapi.gin` are not valid Go syntax, so the facade uses exported namespace values: `openapi.Docs`, `openapi.Gin`, `openapi.Fiber`, and `openapi.Chi`.
+`openapi.docs` and `openapi.gin` are not valid Go syntax, so the facade uses exported namespace values: `openapi.Docs`, `openapi.Gin`, `openapi.Fiber`, `openapi.Chi`, `openapi.Echo`, and `openapi.Iris`.
 
 ## Examples
 

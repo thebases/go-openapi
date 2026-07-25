@@ -13,10 +13,10 @@ func main() {
 	doc := openapi.New(
 		openapi.WithTitle("Fiber Example API"),
 		openapi.WithVersion("1.0.0"),
-		openapi.WithDocStyle(openapi.DocsSwagger),
+		openapi.WithDocStyle(openapi.DocsScalar),
 	)
 
-	err := api.GET(app, doc, "/merchants/:id", openapi.Operation{
+	err := api.GET(app, doc, openapi.Route("/merchants/:id", openapi.Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
 		Parameters: []openapi.ParameterOrReference{
@@ -25,7 +25,7 @@ func main() {
 		Responses: map[string]openapi.ResponseOrReference{
 			"200": openapi.JSONResponse("Merchant returned", openapi.RefSchema("Merchant")),
 		},
-	}, func(c fiber.Ctx) error {
+	}), func(c fiber.Ctx) error {
 		return c.JSON(fiber.Map{"id": c.Params("id"), "name": "The Base"})
 	})
 	if err != nil {

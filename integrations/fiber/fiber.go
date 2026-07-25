@@ -56,28 +56,28 @@ var docs = openapi.DocsRegistrar[fiber.Router]{
 	Mount: mountDocs,
 }
 
-func Handle(router fiber.Router, api *openapi.API, method, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	return routes.Handle(router, api, method, path, operation, handlers...)
+func Handle(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+	return routes.Handle(router, api, spec, handlers...)
 }
 
-func GET(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	return routes.GET(router, api, path, operation, handlers...)
+func GET(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+	return routes.GET(router, api, spec, handlers...)
 }
 
-func POST(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	return routes.POST(router, api, path, operation, handlers...)
+func POST(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+	return routes.POST(router, api, spec, handlers...)
 }
 
-func PUT(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	return routes.PUT(router, api, path, operation, handlers...)
+func PUT(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+	return routes.PUT(router, api, spec, handlers...)
 }
 
-func PATCH(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	return routes.PATCH(router, api, path, operation, handlers...)
+func PATCH(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+	return routes.PATCH(router, api, spec, handlers...)
 }
 
-func DELETE(router fiber.Router, api *openapi.API, path string, operation openapi.Operation, handlers ...fiber.Handler) error {
-	return routes.DELETE(router, api, path, operation, handlers...)
+func DELETE(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+	return routes.DELETE(router, api, spec, handlers...)
 }
 
 func MountDocs(router fiber.Router, api *openapi.API, docsPath, documentPath string, config openapi.DocsConfig) error {

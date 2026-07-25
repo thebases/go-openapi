@@ -24,11 +24,11 @@ func TestRouteRegistrarRegistersOperationAndRoute(t *testing.T) {
 		},
 	}
 
-	err := registrar.GET(router, api, "/merchants/:id", Operation{
+	err := registrar.GET(router, api, Route("/merchants/:id", Operation{
 		Responses: map[string]ResponseOrReference{
 			"200": JSONResponse("ok", StringSchema()),
 		},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("register route: %v", err)
 	}
@@ -65,10 +65,10 @@ func TestRouteRegistrarAutoMountsDocsOnce(t *testing.T) {
 			"200": JSONResponse("ok", StringSchema()),
 		},
 	}
-	if err := registrar.GET(router, api, "/merchants/:id", operation); err != nil {
+	if err := registrar.GET(router, api, Route("/merchants/:id", operation)); err != nil {
 		t.Fatalf("first register route: %v", err)
 	}
-	if err := registrar.POST(router, api, "/merchants", operation); err != nil {
+	if err := registrar.POST(router, api, Route("/merchants", operation)); err != nil {
 		t.Fatalf("second register route: %v", err)
 	}
 	if mountCalls != 1 {
@@ -90,11 +90,11 @@ func TestRouteRegistrarSkipsAutoMountWithoutDocStyle(t *testing.T) {
 		},
 	}
 
-	err := registrar.GET(router, api, "/merchants/:id", Operation{
+	err := registrar.GET(router, api, Route("/merchants/:id", Operation{
 		Responses: map[string]ResponseOrReference{
 			"200": JSONResponse("ok", StringSchema()),
 		},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("register route: %v", err)
 	}
@@ -154,5 +154,8 @@ func TestPrepareDocsMountAllowsPerMountProviderOverride(t *testing.T) {
 	body := recorder.Body.String()
 	if !strings.Contains(body, "<title>Override API</title>") {
 		t.Fatalf("expected override docs title, got %q", body)
+	}
+	if !strings.Contains(body, `window.__DOCS_DOCUMENT_URL__ = `) || !strings.Contains(body, `openapi.json`) {
+		t.Fatalf("expected scalar docs to use docs-relative document URL, got %q", body)
 	}
 }

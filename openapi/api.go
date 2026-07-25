@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"regexp"
 	"strings"
 	"sync"
 
-	openapidocs "github.com/thebases/go-openapi/docs"
+	openapidocs "github.com/thebases/go-openapi/ui"
 )
 
 var (
@@ -18,8 +17,6 @@ var (
 	ErrUnsupportedMethod = errors.New("openapi: unsupported HTTP method")
 	ErrDuplicateRoute    = errors.New("openapi: operation already registered")
 	ErrMissingResponses  = errors.New("openapi: operation must define at least one response")
-
-	nativeParamPattern = regexp.MustCompile(`(^|/)([:*])([A-Za-z_][A-Za-z0-9_]*)`)
 )
 
 type API struct {
@@ -48,12 +45,16 @@ var (
 	Gin   ginNamespace
 	Fiber fiberNamespace
 	Chi   chiNamespace
+	Echo  echoNamespace
+	Iris  irisNamespace
 )
 
 type docsNamespace struct{}
 type ginNamespace struct{}
 type fiberNamespace struct{}
 type chiNamespace struct{}
+type echoNamespace struct{}
+type irisNamespace struct{}
 
 func New(options ...Option) *API {
 	api := &API{
@@ -232,15 +233,7 @@ func operationSlot(item *PathItem, method string) (**Operation, error) {
 }
 
 func CanonicalPath(path string) string {
-	return nativeParamPattern.ReplaceAllStringFunc(path, func(match string) string {
-		prefix := ""
-		token := match
-		if strings.HasPrefix(match, "/") {
-			prefix = "/"
-			token = strings.TrimPrefix(match, "/")
-		}
-		return prefix + "{" + token[1:] + "}"
-	})
+	return FiberPathToOpenAPI(IrisPathToOpenAPI(path))
 }
 
 func StringSchema() *SchemaOrReference {
@@ -279,30 +272,30 @@ func (docsNamespace) DocumentHandler(api *API) http.Handler {
 	return openapidocs.DocumentHandler(api)
 }
 
-func (ginNamespace) Handle(router any, api *API, method, path string, operation Operation, handlers ...any) error {
-	if err := registerOperation(api, method, path, operation); err != nil {
+func (ginNamespace) Handle(router any, api *API, spec RouteSpec, handlers ...any) error {
+	if err := registerOperation(api, spec.Method, spec.Path, spec.Operation); err != nil {
 		return err
 	}
 	if err := mountDocsIfConfigured(router, api, mountGinDocs); err != nil {
 		return err
 	}
-	return callVariadicMethod(router, "Handle", []any{method, path}, handlers)
+	return callVariadicMethod(router, "Handle", []any{spec.Method, spec.Path}, handlers)
 }
 
-func (ginNamespace) GET(router any, api *API, path string, operation Operation, handlers ...any) error {
-	return Gin.Handle(router, api, http.MethodGet, path, operation, handlers...)
+func (ginNamespace) GET(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Gin.Handle(router, api, spec.WithMethod(http.MethodGet), handlers...)
 }
-func (ginNamespace) POST(router any, api *API, path string, operation Operation, handlers ...any) error {
-	return Gin.Handle(router, api, http.MethodPost, path, operation, handlers...)
+func (ginNamespace) POST(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Gin.Handle(router, api, spec.WithMethod(http.MethodPost), handlers...)
 }
-func (ginNamespace) PUT(router any, api *API, path string, operation Operation, handlers ...any) error {
-	return Gin.Handle(router, api, http.MethodPut, path, operation, handlers...)
+func (ginNamespace) PUT(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Gin.Handle(router, api, spec.WithMethod(http.MethodPut), handlers...)
 }
-func (ginNamespace) PATCH(router any, api *API, path string, operation Operation, handlers ...any) error {
-	return Gin.Handle(router, api, http.MethodPatch, path, operation, handlers...)
+func (ginNamespace) PATCH(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Gin.Handle(router, api, spec.WithMethod(http.MethodPatch), handlers...)
 }
-func (ginNamespace) DELETE(router any, api *API, path string, operation Operation, handlers ...any) error {
-	return Gin.Handle(router, api, http.MethodDelete, path, operation, handlers...)
+func (ginNamespace) DELETE(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Gin.Handle(router, api, spec.WithMethod(http.MethodDelete), handlers...)
 }
 
 func (ginNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
@@ -313,29 +306,29 @@ func (ginNamespace) MountDocs(router any, api *API, docsPath, documentPath strin
 	return mountGinDocs(router, docsPath, documentPath, docsHandler, documentHandler)
 }
 
-func (fiberNamespace) Handle(router any, api *API, method, path string, operation Operation, handlers ...any) error {
-	if err := registerOperation(api, method, path, operation); err != nil {
+func (fiberNamespace) Handle(router any, api *API, spec RouteSpec, handlers ...any) error {
+	if err := registerOperation(api, spec.Method, spec.Path, spec.Operation); err != nil {
 		return err
 	}
 	if err := mountDocsIfConfigured(router, api, mountFiberDocs); err != nil {
 		return err
 	}
-	return callVariadicMethod(router, "Add", []any{[]string{method}, path}, handlers)
+	return callVariadicMethod(router, "Add", []any{[]string{spec.Method}, spec.Path}, handlers)
 }
-func (fiberNamespace) GET(router any, api *API, path string, operation Operation, handlers ...any) error {
-	return Fiber.Handle(router, api, http.MethodGet, path, operation, handlers...)
+func (fiberNamespace) GET(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Fiber.Handle(router, api, spec.WithMethod(http.MethodGet), handlers...)
 }
-func (fiberNamespace) POST(router any, api *API, path string, operation Operation, handlers ...any) error {
-	return Fiber.Handle(router, api, http.MethodPost, path, operation, handlers...)
+func (fiberNamespace) POST(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Fiber.Handle(router, api, spec.WithMethod(http.MethodPost), handlers...)
 }
-func (fiberNamespace) PUT(router any, api *API, path string, operation Operation, handlers ...any) error {
-	return Fiber.Handle(router, api, http.MethodPut, path, operation, handlers...)
+func (fiberNamespace) PUT(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Fiber.Handle(router, api, spec.WithMethod(http.MethodPut), handlers...)
 }
-func (fiberNamespace) PATCH(router any, api *API, path string, operation Operation, handlers ...any) error {
-	return Fiber.Handle(router, api, http.MethodPatch, path, operation, handlers...)
+func (fiberNamespace) PATCH(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Fiber.Handle(router, api, spec.WithMethod(http.MethodPatch), handlers...)
 }
-func (fiberNamespace) DELETE(router any, api *API, path string, operation Operation, handlers ...any) error {
-	return Fiber.Handle(router, api, http.MethodDelete, path, operation, handlers...)
+func (fiberNamespace) DELETE(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Fiber.Handle(router, api, spec.WithMethod(http.MethodDelete), handlers...)
 }
 
 func (fiberNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
@@ -346,29 +339,29 @@ func (fiberNamespace) MountDocs(router any, api *API, docsPath, documentPath str
 	return mountFiberDocs(router, docsPath, documentPath, docsHandler, documentHandler)
 }
 
-func (chiNamespace) Handle(router any, api *API, method, path string, operation Operation, handler http.Handler) error {
-	if err := registerOperation(api, method, path, operation); err != nil {
+func (chiNamespace) Handle(router any, api *API, spec RouteSpec, handler http.Handler) error {
+	if err := registerOperation(api, spec.Method, spec.Path, spec.Operation); err != nil {
 		return err
 	}
 	if err := mountDocsIfConfigured(router, api, mountChiDocs); err != nil {
 		return err
 	}
-	return callMethodExact(router, "Method", method, path, handler)
+	return callMethodExact(router, "Method", spec.Method, spec.Path, handler)
 }
-func (chiNamespace) GET(router any, api *API, path string, operation Operation, handler http.HandlerFunc) error {
-	return Chi.Handle(router, api, http.MethodGet, path, operation, handler)
+func (chiNamespace) GET(router any, api *API, spec RouteSpec, handler http.HandlerFunc) error {
+	return Chi.Handle(router, api, spec.WithMethod(http.MethodGet), handler)
 }
-func (chiNamespace) POST(router any, api *API, path string, operation Operation, handler http.HandlerFunc) error {
-	return Chi.Handle(router, api, http.MethodPost, path, operation, handler)
+func (chiNamespace) POST(router any, api *API, spec RouteSpec, handler http.HandlerFunc) error {
+	return Chi.Handle(router, api, spec.WithMethod(http.MethodPost), handler)
 }
-func (chiNamespace) PUT(router any, api *API, path string, operation Operation, handler http.HandlerFunc) error {
-	return Chi.Handle(router, api, http.MethodPut, path, operation, handler)
+func (chiNamespace) PUT(router any, api *API, spec RouteSpec, handler http.HandlerFunc) error {
+	return Chi.Handle(router, api, spec.WithMethod(http.MethodPut), handler)
 }
-func (chiNamespace) PATCH(router any, api *API, path string, operation Operation, handler http.HandlerFunc) error {
-	return Chi.Handle(router, api, http.MethodPatch, path, operation, handler)
+func (chiNamespace) PATCH(router any, api *API, spec RouteSpec, handler http.HandlerFunc) error {
+	return Chi.Handle(router, api, spec.WithMethod(http.MethodPatch), handler)
 }
-func (chiNamespace) DELETE(router any, api *API, path string, operation Operation, handler http.HandlerFunc) error {
-	return Chi.Handle(router, api, http.MethodDelete, path, operation, handler)
+func (chiNamespace) DELETE(router any, api *API, spec RouteSpec, handler http.HandlerFunc) error {
+	return Chi.Handle(router, api, spec.WithMethod(http.MethodDelete), handler)
 }
 
 func (chiNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
@@ -377,6 +370,74 @@ func (chiNamespace) MountDocs(router any, api *API, docsPath, documentPath strin
 		return err
 	}
 	return mountChiDocs(router, docsPath, documentPath, docsHandler, documentHandler)
+}
+
+func (echoNamespace) Handle(router any, api *API, spec RouteSpec, handlers ...any) error {
+	if err := registerOperation(api, spec.Method, spec.Path, spec.Operation); err != nil {
+		return err
+	}
+	if err := mountDocsIfConfigured(router, api, mountEchoDocs); err != nil {
+		return err
+	}
+	return callVariadicMethod(router, "Add", []any{spec.Method, spec.Path}, handlers)
+}
+
+func (echoNamespace) GET(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Echo.Handle(router, api, spec.WithMethod(http.MethodGet), handlers...)
+}
+func (echoNamespace) POST(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Echo.Handle(router, api, spec.WithMethod(http.MethodPost), handlers...)
+}
+func (echoNamespace) PUT(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Echo.Handle(router, api, spec.WithMethod(http.MethodPut), handlers...)
+}
+func (echoNamespace) PATCH(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Echo.Handle(router, api, spec.WithMethod(http.MethodPatch), handlers...)
+}
+func (echoNamespace) DELETE(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Echo.Handle(router, api, spec.WithMethod(http.MethodDelete), handlers...)
+}
+
+func (echoNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
+	docsPath, documentPath, docsHandler, documentHandler, err := prepareDocsMount(api, docsPath, documentPath, config)
+	if err != nil {
+		return err
+	}
+	return mountEchoDocs(router, docsPath, documentPath, docsHandler, documentHandler)
+}
+
+func (irisNamespace) Handle(router any, api *API, spec RouteSpec, handlers ...any) error {
+	if err := registerOperation(api, spec.Method, spec.Path, spec.Operation); err != nil {
+		return err
+	}
+	if err := mountDocsIfConfigured(router, api, mountIrisDocs); err != nil {
+		return err
+	}
+	return callVariadicMethod(router, "Handle", []any{spec.Method, spec.Path}, handlers)
+}
+
+func (irisNamespace) GET(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Iris.Handle(router, api, spec.WithMethod(http.MethodGet), handlers...)
+}
+func (irisNamespace) POST(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Iris.Handle(router, api, spec.WithMethod(http.MethodPost), handlers...)
+}
+func (irisNamespace) PUT(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Iris.Handle(router, api, spec.WithMethod(http.MethodPut), handlers...)
+}
+func (irisNamespace) PATCH(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Iris.Handle(router, api, spec.WithMethod(http.MethodPatch), handlers...)
+}
+func (irisNamespace) DELETE(router any, api *API, spec RouteSpec, handlers ...any) error {
+	return Iris.Handle(router, api, spec.WithMethod(http.MethodDelete), handlers...)
+}
+
+func (irisNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
+	docsPath, documentPath, docsHandler, documentHandler, err := prepareDocsMount(api, docsPath, documentPath, config)
+	if err != nil {
+		return err
+	}
+	return mountIrisDocs(router, docsPath, documentPath, docsHandler, documentHandler)
 }
 
 func mountGinDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
@@ -423,6 +484,42 @@ func mountChiDocs(router any, docsPath, documentPath string, docsHandler, docume
 		return err
 	}
 	return callMethodExact(router, "Handle", docsPath+"/*", docsHandler)
+}
+
+func mountEchoDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
+	documentRouteHandler, err := makeEchoHTTPHandler(router, documentHandler)
+	if err != nil {
+		return err
+	}
+	docsRouteHandler, err := makeEchoHTTPHandler(router, docsHandler)
+	if err != nil {
+		return err
+	}
+	if err := callVariadicMethod(router, "GET", []any{documentPath}, []any{documentRouteHandler.Interface()}); err != nil {
+		return err
+	}
+	if err := callVariadicMethod(router, "GET", []any{docsPath}, []any{docsRouteHandler.Interface()}); err != nil {
+		return err
+	}
+	return callVariadicMethod(router, "GET", []any{docsPath + "/*"}, []any{docsRouteHandler.Interface()})
+}
+
+func mountIrisDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
+	documentRouteHandler, err := makeIrisHTTPHandler(router, documentHandler)
+	if err != nil {
+		return err
+	}
+	docsRouteHandler, err := makeIrisHTTPHandler(router, docsHandler)
+	if err != nil {
+		return err
+	}
+	if err := callVariadicMethod(router, "Get", []any{documentPath}, []any{documentRouteHandler.Interface()}); err != nil {
+		return err
+	}
+	if err := callVariadicMethod(router, "Get", []any{docsPath}, []any{docsRouteHandler.Interface()}); err != nil {
+		return err
+	}
+	return callVariadicMethod(router, "Get", []any{docsPath + "/{asset:path}"}, []any{docsRouteHandler.Interface()})
 }
 func callVariadicMethod(target any, name string, fixedArgs []any, variadicArgs []any) error {
 	method := reflect.ValueOf(target).MethodByName(name)
@@ -496,7 +593,10 @@ func makeGinHandler(router any, fn func(ctx reflect.Value)) (reflect.Value, erro
 	if !method.IsValid() {
 		return reflect.Value{}, fmt.Errorf("openapi facade: %T does not expose GET", router)
 	}
-	handlerType := method.Type().In(1).Elem()
+	handlerType := method.Type().In(1)
+	if handlerType.Kind() == reflect.Slice {
+		handlerType = handlerType.Elem()
+	}
 	return reflect.MakeFunc(handlerType, func(args []reflect.Value) []reflect.Value {
 		fn(args[0])
 		return nil
@@ -522,7 +622,10 @@ func makeFiberHandler(router any, fn func(ctx reflect.Value) error) (reflect.Val
 	if !method.IsValid() {
 		return reflect.Value{}, fmt.Errorf("openapi facade: %T does not expose Get", router)
 	}
-	handlerType := method.Type().In(1).Elem()
+	handlerType := method.Type().In(1)
+	if handlerType.Kind() == reflect.Slice {
+		handlerType = handlerType.Elem()
+	}
 	return reflect.MakeFunc(handlerType, func(args []reflect.Value) []reflect.Value {
 		err := fn(args[0])
 		if handlerType.NumOut() == 0 {
@@ -553,6 +656,79 @@ func makeFiberHTTPHandler(router any, handler http.Handler) (reflect.Value, erro
 			return callErrorMethod(ctx, "Send", recorder.body)
 		}
 		return callErrorMethod(statusResult, "Send", recorder.body)
+	})
+}
+
+func makeEchoHandler(router any, fn func(ctx reflect.Value) error) (reflect.Value, error) {
+	method := reflect.ValueOf(router).MethodByName("GET")
+	if !method.IsValid() {
+		return reflect.Value{}, fmt.Errorf("openapi facade: %T does not expose GET", router)
+	}
+	handlerType := method.Type().In(1)
+	if handlerType.Kind() == reflect.Slice {
+		handlerType = handlerType.Elem()
+	}
+	return reflect.MakeFunc(handlerType, func(args []reflect.Value) []reflect.Value {
+		err := fn(args[0])
+		if handlerType.NumOut() == 0 {
+			return nil
+		}
+		if err == nil {
+			return []reflect.Value{reflect.Zero(handlerType.Out(0))}
+		}
+		return []reflect.Value{reflect.ValueOf(err)}
+	}), nil
+}
+
+func makeEchoHTTPHandler(router any, handler http.Handler) (reflect.Value, error) {
+	// Echo exposes the native request/response pair through its context, so the
+	// facade can replay docs handlers without a direct framework dependency.
+	return makeEchoHandler(router, func(ctx reflect.Value) error {
+		response, ok := callMethodValue(ctx, "Response")
+		if !ok {
+			return errors.New("openapi facade: echo context does not expose Response")
+		}
+		writerField := contextField(response, "Writer")
+		if !writerField.IsValid() || writerField.IsNil() {
+			return errors.New("openapi facade: echo response does not expose Writer")
+		}
+		request, ok := callMethodValue(ctx, "Request")
+		if !ok || request.IsNil() {
+			return errors.New("openapi facade: echo context does not expose Request")
+		}
+		handler.ServeHTTP(writerField.Interface().(http.ResponseWriter), request.Interface().(*http.Request))
+		return nil
+	})
+}
+
+func makeIrisHandler(router any, fn func(ctx reflect.Value)) (reflect.Value, error) {
+	method := reflect.ValueOf(router).MethodByName("Get")
+	if !method.IsValid() {
+		return reflect.Value{}, fmt.Errorf("openapi facade: %T does not expose Get", router)
+	}
+	handlerType := method.Type().In(1)
+	if handlerType.Kind() == reflect.Slice {
+		handlerType = handlerType.Elem()
+	}
+	return reflect.MakeFunc(handlerType, func(args []reflect.Value) []reflect.Value {
+		fn(args[0])
+		return nil
+	}), nil
+}
+
+func makeIrisHTTPHandler(router any, handler http.Handler) (reflect.Value, error) {
+	// Iris exposes standard request and response writer accessors, so docs can
+	// flow through the same net/http handlers used by every other adapter.
+	return makeIrisHandler(router, func(ctx reflect.Value) {
+		writer, ok := callMethodValue(ctx, "ResponseWriter")
+		if !ok || writer.IsNil() {
+			return
+		}
+		request, ok := callMethodValue(ctx, "Request")
+		if !ok || request.IsNil() {
+			return
+		}
+		handler.ServeHTTP(writer.Interface().(http.ResponseWriter), request.Interface().(*http.Request))
 	})
 }
 

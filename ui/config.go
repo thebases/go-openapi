@@ -11,6 +11,7 @@ const (
 type Config struct {
 	Provider    Provider
 	Title       string
+	DocsPath    string
 	DocumentURL string
 	CDNBaseURL  string
 }

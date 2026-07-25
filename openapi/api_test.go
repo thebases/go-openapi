@@ -40,8 +40,15 @@ func TestWithDocStyle(t *testing.T) {
 		t.Fatalf("unexpected docs provider: %q", api.docsProvider)
 	}
 }
+
 func TestCanonicalPath(t *testing.T) {
 	if got := CanonicalPath("/users/:id/files/*path"); got != "/users/{id}/files/{path}" {
 		t.Fatalf("unexpected canonical path: %q", got)
+	}
+}
+
+func TestCanonicalPathSupportsIrisTemplates(t *testing.T) {
+	if got := CanonicalPath("/users/{id:int}/posts/{slug:string}"); got != "/users/{id}/posts/{slug}" {
+		t.Fatalf("unexpected iris canonical path: %q", got)
 	}
 }

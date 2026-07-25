@@ -6,10 +6,15 @@ import (
 	"strings"
 )
 
-var fiberParamPattern = regexp.MustCompile(`:([A-Za-z_][A-Za-z0-9_]*)`)
+var nativeParamPattern = regexp.MustCompile(`([:*])([A-Za-z_][A-Za-z0-9_]*)`)
+var irisParamPattern = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_]*)(?::[^{}]+)?\}`)
 
 func FiberPathToOpenAPI(path string) string {
-	return fiberParamPattern.ReplaceAllString(path, `{$1}`)
+	return nativeParamPattern.ReplaceAllString(path, `{$2}`)
+}
+
+func IrisPathToOpenAPI(path string) string {
+	return irisParamPattern.ReplaceAllString(path, `{$1}`)
 }
 
 func SetOperation(item *PathItem, method string, operation *Operation) error {

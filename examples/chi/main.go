@@ -18,7 +18,7 @@ func main() {
 		openapi.WithDocStyle(openapi.DocsSwagger),
 	)
 
-	err := api.GET(router, doc, "/merchants/{id}", openapi.Operation{
+	err := api.GET(router, doc, openapi.Route("/merchants/{id}", openapi.Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
 		Parameters: []openapi.ParameterOrReference{
@@ -27,7 +27,7 @@ func main() {
 		Responses: map[string]openapi.ResponseOrReference{
 			"200": openapi.JSONResponse("Merchant returned", openapi.RefSchema("Merchant")),
 		},
-	}, func(w http.ResponseWriter, r *http.Request) {
+	}), func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"id":   chi.URLParam(r, "id"),
 			"name": "The Base",

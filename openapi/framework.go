@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"strings"
 
-	openapidocs "github.com/thebases/go-openapi/docs"
+	openapidocs "github.com/thebases/go-openapi/ui"
 )
 
 // RouteRegistrar keeps OpenAPI registration and native route mounting in one place
@@ -18,39 +18,59 @@ type RouteRegistrar[Router any, Handler any] struct {
 	MountDocs func(router Router, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error
 }
 
-func (registrar RouteRegistrar[Router, Handler]) Handle(router Router, api *API, method, path string, operation Operation, handlers ...Handler) error {
+// RouteSpec keeps the runtime route identity and the OpenAPI operation together
+// so integrations can pass one route contract through registration helpers.
+type RouteSpec struct {
+	Method    string
+	Path      string
+	Operation Operation
+}
+
+func Route(path string, operation Operation) RouteSpec {
+	return RouteSpec{
+		Path:      path,
+		Operation: operation,
+	}
+}
+
+func (spec RouteSpec) WithMethod(method string) RouteSpec {
+	spec.Method = method
+	return spec
+}
+
+func (registrar RouteRegistrar[Router, Handler]) Handle(router Router, api *API, spec RouteSpec, handlers ...Handler) error {
 	if registrar.Register == nil {
 		return errors.New("openapi: route registrar is not configured")
 	}
-	if err := registerOperation(api, method, path, operation); err != nil {
+	if err := registerOperation(api, spec.Method, spec.Path, spec.Operation); err != nil {
 		return err
 	}
 	if err := mountDocsIfConfigured(router, api, registrar.MountDocs); err != nil {
 		return err
 	}
 
-	registrar.Register(router, method, path, handlers...)
+	registrar.Register(router, spec.Method, spec.Path, handlers...)
 	return nil
 }
 
-func (registrar RouteRegistrar[Router, Handler]) GET(router Router, api *API, path string, operation Operation, handlers ...Handler) error {
-	return registrar.Handle(router, api, http.MethodGet, path, operation, handlers...)
+func (registrar RouteRegistrar[Router, Handler]) GET(router Router, api *API, spec RouteSpec, handlers ...Handler) error {
+	return registrar.Handle(router, api, spec.WithMethod(http.MethodGet), handlers...)
 }
 
-func (registrar RouteRegistrar[Router, Handler]) POST(router Router, api *API, path string, operation Operation, handlers ...Handler) error {
-	return registrar.Handle(router, api, http.MethodPost, path, operation, handlers...)
+func (registrar RouteRegistrar[Router, Handler]) POST(router Router, api *API, spec RouteSpec, handlers ...Handler) error {
+	return registrar.Handle(router, api, spec.WithMethod(http.MethodPost), handlers...)
 }
 
-func (registrar RouteRegistrar[Router, Handler]) PUT(router Router, api *API, path string, operation Operation, handlers ...Handler) error {
-	return registrar.Handle(router, api, http.MethodPut, path, operation, handlers...)
+func (registrar RouteRegistrar[Router, Handler]) PUT(router Router, api *API, spec RouteSpec, handlers ...Handler) error {
+	return registrar.Handle(router, api, spec.WithMethod(http.MethodPut), handlers...)
 }
 
-func (registrar RouteRegistrar[Router, Handler]) PATCH(router Router, api *API, path string, operation Operation, handlers ...Handler) error {
-	return registrar.Handle(router, api, http.MethodPatch, path, operation, handlers...)
+func (registrar RouteRegistrar[Router, Handler]) PATCH(router Router, api *API, spec RouteSpec, handlers ...Handler) error {
+	return registrar.Handle(router, api, spec.WithMethod(http.MethodPatch), handlers...)
 }
 
-func (registrar RouteRegistrar[Router, Handler]) DELETE(router Router, api *API, path string, operation Operation, handlers ...Handler) error {
-	return registrar.Handle(router, api, http.MethodDelete, path, operation, handlers...)
+func (registrar RouteRegistrar[Router, Handler]) DELETE(router Router, api *API, spec RouteSpec, handlers ...Handler) error {
+	return registrar.Handle(router, api, spec.WithMethod(http.MethodDelete), handlers...)
 }
 
 // DocsRegistrar centralizes docs handler preparation so future framework adapters
@@ -92,6 +112,7 @@ func prepareDocsMount(api *API, docsPath, documentPath string, config DocsConfig
 	if config.Title == "" {
 		config.Title = api.docsTitle()
 	}
+	config.DocsPath = docsPath
 	config.DocumentURL = documentPath
 
 	docsHandler, err := openapidocs.DocsHandler(config)
