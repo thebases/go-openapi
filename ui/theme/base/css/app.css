@@ -338,6 +338,20 @@ body[data-theme="dark"] .schema-name {
   gap: 8px;
 }
 
+#auth-dialog .auth-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#auth-dialog .auth-input-row .input {
+  flex: 1 1 auto;
+}
+
+#auth-dialog .auth-clean-button.is-hidden {
+  display: none;
+}
+
 #auth-dialog .auth-field-label {
   margin: 0;
   font-size: 13px;

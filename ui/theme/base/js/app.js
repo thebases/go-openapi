@@ -83,6 +83,14 @@ function setStoredAuth(name, value) {
   else sessionStorage.removeItem(name);
 }
 
+/**
+ * Returns whether a session-backed auth field is currently locked by a saved
+ * value and should render as read-only until cleared by the user.
+ */
+function isStoredAuthLocked(name) {
+  return !!getStoredAuth(name);
+}
+
 function hasAnyStoredAuth() {
   return !!(getStoredAuth('apikey') || getStoredAuth('oauthkey'));
 }
@@ -708,19 +716,58 @@ async function sendRequest(op) {
 
 // ---------- authorize dialog ----------
 
+/**
+ * Renders one sessionStorage-backed auth input with its optional clean action.
+ * Saved values stay visible but locked until the corresponding storage key is cleared.
+ */
+function renderStoredAuthField({ id, label, storageKey, placeholder, helpText }) {
+  const value = getStoredAuth(storageKey);
+  const isLocked = isStoredAuthLocked(storageKey);
+
+  return `
+    <div class="auth-field">
+      <label class="tryit-field auth-field">
+        <span class="auth-field-label">${label}</span>
+        <div class="auth-input-row">
+          <input
+            type="text"
+            class="input"
+            id="${id}"
+            value="${escapeHtml(value)}"
+            placeholder="${escapeHtml(placeholder)}"
+            ${isLocked ? 'disabled' : ''}
+          >
+          <button
+            type="button"
+            class="btn-outline btn-sm auth-clean-button ${isLocked ? '' : 'is-hidden'}"
+            data-auth-clear="${storageKey}"
+          >
+            Clean
+          </button>
+        </div>
+      </label>
+      <p class="param-desc auth-field-help">${helpText}</p>
+    </div>
+  `;
+}
+
 function renderAuthGlobalFields() {
   return `
     <div class="auth-global-fields">
-      <label class="tryit-field auth-field">
-        <span class="auth-field-label">API Key</span>
-        <input type="text" class="input" id="auth-global-apikey" value="${escapeHtml(getStoredAuth('apikey'))}" placeholder="Enter API key">
-      </label>
-      <p class="param-desc auth-field-help">Stored in this tab's session storage as <code>apikey</code>. Used for apiKey-type schemes and as the Basic auth credential (<code>Authorization: Basic &lt;API Key&gt;</code>).</p>
-      <label class="tryit-field auth-field">
-        <span class="auth-field-label">OAuth Key (access token)</span>
-        <input type="text" class="input" id="auth-global-oauthkey" value="${escapeHtml(getStoredAuth('oauthkey'))}" placeholder="Bearer token (auto-filled by Authorize/Get token below)">
-      </label>
-      <p class="param-desc auth-field-help">Stored in this tab's session storage as <code>oauthkey</code>. Used for oauth2-type schemes as <code>Authorization: Bearer &lt;OAuth Key&gt;</code>.</p>
+      ${renderStoredAuthField({
+        id: 'auth-global-apikey',
+        label: 'API Key',
+        storageKey: 'apikey',
+        placeholder: 'Enter API key',
+        helpText: `Stored in this tab's session storage as <code>apikey</code>. Used for apiKey-type schemes and as the Basic auth credential (<code>Authorization: Basic &lt;API Key&gt;</code>).`,
+      })}
+      ${renderStoredAuthField({
+        id: 'auth-global-oauthkey',
+        label: 'OAuth Key (access token)',
+        storageKey: 'oauthkey',
+        placeholder: 'Bearer token (auto-filled by Authorize/Get token below)',
+        helpText: `Stored in this tab's session storage as <code>oauthkey</code>. Used for oauth2-type schemes as <code>Authorization: Bearer &lt;OAuth Key&gt;</code>.`,
+      })}
     </div>
   `;
 }
@@ -817,6 +864,22 @@ function openAuthDialog() {
   els.authDialog.showModal();
 }
 
+/**
+ * Clears one saved auth credential, rerenders the dialog field state, and
+ * reapplies auth headers/query params across every Try It request draft.
+ */
+function clearStoredAuthField(storageKey) {
+  setStoredAuth(storageKey, '');
+  if (els.authDialog.open) {
+    els.authDialogBody.innerHTML = renderAuthDialogBody();
+  }
+  applyAuthToAllStates();
+}
+
+/**
+ * Persists the dialog's global auth values to session storage and refreshes
+ * in-memory OAuth helper values before updating all Try It request drafts.
+ */
 function saveAuthDialog() {
   setStoredAuth('apikey', document.getElementById('auth-global-apikey').value.trim());
   setStoredAuth('oauthkey', document.getElementById('auth-global-oauthkey').value.trim());
@@ -1033,6 +1096,11 @@ function wireEvents() {
     if (e.target.closest('[data-action="auth-cancel"]')) els.authDialog.close();
     else if (e.target.closest('[data-action="auth-save"]')) saveAuthDialog();
     else {
+      const clearBtn = e.target.closest('[data-auth-clear]');
+      if (clearBtn) {
+        clearStoredAuthField(clearBtn.dataset.authClear);
+        return;
+      }
       const oauthBtn = e.target.closest('[data-oauth-authorize]');
       if (oauthBtn) startOAuth2Flow(oauthBtn.dataset.oauthAuthorize);
     }
