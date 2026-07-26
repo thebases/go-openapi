@@ -11,13 +11,20 @@ import (
 
 func mountDocs(router gin.IRoutes, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
 	router.GET(documentPath, gin.WrapH(documentHandler))
+	mountedDocsHandler := docsHandler
 	if aliasPath := docsDocumentAliasPath(docsPath, documentPath); aliasPath != "" {
-		// Keep a docs-scoped alias for the configured document basename so
-		// requests under /docs do not fall through to the docs asset handler.
-		router.GET(aliasPath, gin.WrapH(documentHandler))
+		// Gin rejects sibling wildcard and static routes under the same prefix, so
+		// serve the docs-scoped document alias from the docs wildcard handler.
+		mountedDocsHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL != nil && r.URL.Path == aliasPath {
+				documentHandler.ServeHTTP(w, r)
+				return
+			}
+			docsHandler.ServeHTTP(w, r)
+		})
 	}
-	router.GET(docsPath, gin.WrapH(docsHandler))
-	router.GET(docsPath+"/*asset", gin.WrapH(docsHandler))
+	router.GET(docsPath, gin.WrapH(mountedDocsHandler))
+	router.GET(docsPath+"/*asset", gin.WrapH(mountedDocsHandler))
 	return nil
 }
 

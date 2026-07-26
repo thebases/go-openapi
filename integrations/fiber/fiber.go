@@ -180,6 +180,11 @@ func makeFiberHTTPHandler(router any, handler http.Handler) (reflect.Value, erro
 	if handlerType.Kind() == reflect.Slice {
 		handlerType = handlerType.Elem()
 	}
+	if handlerType.Kind() == reflect.Interface {
+		// Fiber v3 accepts plain net/http handlers in its interface-typed route
+		// slots, so pass the docs handler through directly and let Fiber adapt it.
+		return reflect.ValueOf(handler), nil
+	}
 
 	return reflect.MakeFunc(handlerType, func(args []reflect.Value) []reflect.Value {
 		err := replayFiberHTTP(handler, args[0])

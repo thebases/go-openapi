@@ -752,6 +752,20 @@ func makeFiberHandler(router any, fn func(ctx reflect.Value) error) (reflect.Val
 }
 
 func makeFiberHTTPHandler(router any, handler http.Handler) (reflect.Value, error) {
+	method := reflect.ValueOf(router).MethodByName("Get")
+	if !method.IsValid() {
+		return reflect.Value{}, fmt.Errorf("openapi facade: %T does not expose Get", router)
+	}
+	handlerType := method.Type().In(1)
+	if handlerType.Kind() == reflect.Slice {
+		handlerType = handlerType.Elem()
+	}
+	if handlerType.Kind() == reflect.Interface {
+		// Fiber v3 accepts plain net/http handlers in its interface-typed route
+		// slots, so pass the docs handler through directly and let Fiber adapt it.
+		return reflect.ValueOf(handler), nil
+	}
+
 	// Fiber needs a response recorder bridge because the docs package emits
 	// standard net/http handlers while Fiber expects its own handler contract.
 	return makeFiberHandler(router, func(ctx reflect.Value) error {

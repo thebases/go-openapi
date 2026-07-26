@@ -59,17 +59,14 @@ func TestDocsHandlerSupportsBaseUI(t *testing.T) {
 	if !strings.Contains(body, `window.__DOCS_DOCUMENT_URL__ = `) || !strings.Contains(body, `merchant\/openapi.json`) {
 		t.Fatalf("expected base UI document URL bootstrap, got %q", body)
 	}
-	if !strings.Contains(body, `href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat-maia.cdn.min.css"`) {
-		t.Fatalf("expected base UI CDN stylesheet link, got %q", body)
-	}
-	if !strings.Contains(body, `onerror="this.onerror=null;this.href='\/docs/css/basecoat-maia.cdn.min.css';"`) {
-		t.Fatalf("expected base UI local stylesheet fallback, got %q", body)
-	}
 	if !strings.Contains(body, `href="/docs/css/app.css"`) {
 		t.Fatalf("expected base UI app stylesheet link, got %q", body)
 	}
-	if strings.Index(body, `basecoat-maia.cdn.min.css`) > strings.Index(body, `/docs/css/app.css`) {
-		t.Fatalf("expected app.css link to appear after Basecoat, got %q", body)
+	if strings.Contains(body, `basecoat-maia.cdn.min.css`) {
+		t.Fatalf("expected base UI to be self-contained without Basecoat stylesheet links, got %q", body)
+	}
+	if strings.Contains(body, `src="/docs/js/all.min.js"`) {
+		t.Fatalf("expected base UI to avoid the Basecoat JS bundle, got %q", body)
 	}
 	if strings.Contains(body, `type="module"`) {
 		t.Fatalf("expected base UI app shell to use a plain script tag, got %q", body)
@@ -160,4 +157,3 @@ func TestDocsHandlerRejectsNestedAssetTraversal(t *testing.T) {
 		t.Fatalf("expected 404 for traversal path, got %d", recorder.Code)
 	}
 }
-
