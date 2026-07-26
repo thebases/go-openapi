@@ -6,11 +6,11 @@ import (
 	"strings"
 )
 
-var openAPIVersionPattern = regexp.MustCompile(`^3\.0\.\d+$`)
+var openAPIVersionPattern = regexp.MustCompile(`^3\.[0-2]\.\d+$`)
 
 func (d *Document) Validate() error {
 	if !openAPIVersionPattern.MatchString(d.OpenAPI) {
-		return fmt.Errorf("unsupported OpenAPI version %q; expected 3.0.x", d.OpenAPI)
+		return fmt.Errorf("unsupported OpenAPI version %q; expected 3.0.x, 3.1.x, or 3.2.x", d.OpenAPI)
 	}
 	if strings.TrimSpace(d.Info.Title) == "" {
 		return fmt.Errorf("info.title is required")
@@ -18,8 +18,8 @@ func (d *Document) Validate() error {
 	if strings.TrimSpace(d.Info.Version) == "" {
 		return fmt.Errorf("info.version is required")
 	}
-	if d.Paths == nil {
-		return fmt.Errorf("paths is required")
+	if len(d.Paths) == 0 && len(d.Webhooks) == 0 && !hasComponents(d.Components) {
+		return fmt.Errorf("document must contain at least one of paths, webhooks, or components")
 	}
 
 	operationIDs := map[string]string{}
@@ -38,6 +38,16 @@ func (d *Document) Validate() error {
 	}
 
 	return nil
+}
+
+func hasComponents(c *Components) bool {
+	if c == nil {
+		return false
+	}
+	return len(c.Schemas) > 0 || len(c.Responses) > 0 || len(c.Parameters) > 0 ||
+		len(c.Examples) > 0 || len(c.RequestBodies) > 0 || len(c.Headers) > 0 ||
+		len(c.SecuritySchemes) > 0 || len(c.Links) > 0 || len(c.Callbacks) > 0 ||
+		len(c.PathItems) > 0
 }
 
 func validatePathItem(path string, item *PathItem, operationIDs map[string]string) error {

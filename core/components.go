@@ -10,5 +10,6 @@ type Components struct {
 	SecuritySchemes map[string]*SecuritySchemeOrReference `json:"securitySchemes,omitempty"`
 	Links           map[string]any                        `json:"links,omitempty"`
 	Callbacks       map[string]any                        `json:"callbacks,omitempty"`
+	PathItems       map[string]*PathItem                  `json:"pathItems,omitempty"`
 	Extensions      map[string]any                        `json:"-"`
 }

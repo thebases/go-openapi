@@ -114,6 +114,8 @@ function toggleTheme() {
   const nextTheme = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
   localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
   applyTheme(nextTheme);
+  initMermaid();
+  route();
 }
 
 // ---------- tiny helpers ----------
@@ -128,17 +130,165 @@ function assetUrl(path) {
   return `${base}/${cleanPath}`;
 }
 
-// Minimal markdown: **bold**, `code`, [text](url), blank-line paragraphs.
+// Inline markdown: **bold**, __bold__, *italic*, `code`, [text](url), ![alt](url).
+function renderInline(text) {
+  let html = escapeHtml(text);
+  html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  return html;
+}
+
+function splitTableRow(line) {
+  let t = line.trim();
+  if (t.startsWith('|')) t = t.slice(1);
+  if (t.endsWith('|')) t = t.slice(0, -1);
+  return t.split('|').map(c => c.trim());
+}
+
+// Small GFM-flavored markdown renderer: headers, lists, tables, blockquotes,
+// fenced code blocks (```mermaid fences become <pre class="mermaid"> for the
+// CDN-loaded mermaid.js runtime to pick up), rules, and inline formatting.
 function mdLite(src) {
   if (!src) return '';
-  const paragraphs = src.split(/\n\s*\n/).map(p => {
-    let html = escapeHtml(p.trim());
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-    return `<p>${html.replace(/\n/g, '<br>')}</p>`;
-  });
-  return paragraphs.join('');
+  const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let paragraphBuf = [];
+  let i = 0;
+
+  function flushParagraph() {
+    if (!paragraphBuf.length) return;
+    out.push(`<p>${renderInline(paragraphBuf.join('\n')).replace(/\n/g, '<br>')}</p>`);
+    paragraphBuf = [];
+  }
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    const fence = line.match(/^\s*```\s*([\w-]*)\s*$/);
+    if (fence) {
+      flushParagraph();
+      const lang = fence[1] || '';
+      const codeLines = [];
+      i++;
+      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++;
+      const code = codeLines.join('\n');
+      if (lang === 'mermaid') {
+        out.push(`<pre class="mermaid">${escapeHtml(code)}</pre>`);
+      } else {
+        out.push(`<pre class="code-block"${lang ? ` data-lang="${escapeHtml(lang)}"` : ''}><code>${escapeHtml(code)}</code></pre>`);
+      }
+      continue;
+    }
+
+    if (/^\s*$/.test(line)) {
+      flushParagraph();
+      i++;
+      continue;
+    }
+
+    const header = line.match(/^(#{1,6})\s+(.*)$/);
+    if (header) {
+      flushParagraph();
+      const level = header[1].length;
+      out.push(`<h${level}>${renderInline(header[2].trim())}</h${level}>`);
+      i++;
+      continue;
+    }
+
+    if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line)) {
+      flushParagraph();
+      out.push('<hr>');
+      i++;
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)) {
+      flushParagraph();
+      const quoteLines = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+        quoteLines.push(lines[i].replace(/^\s*>\s?/, ''));
+        i++;
+      }
+      out.push(`<blockquote>${mdLite(quoteLines.join('\n'))}</blockquote>`);
+      continue;
+    }
+
+    if (/^\s*\|.*\|\s*$/.test(line) && lines[i + 1] && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1])) {
+      flushParagraph();
+      const headCells = splitTableRow(line);
+      const aligns = splitTableRow(lines[i + 1]).map(cell => {
+        if (/^:-+:$/.test(cell)) return 'center';
+        if (/^-+:$/.test(cell)) return 'right';
+        if (/^:-+$/.test(cell)) return 'left';
+        return '';
+      });
+      i += 2;
+      const bodyRows = [];
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
+        bodyRows.push(splitTableRow(lines[i]));
+        i++;
+      }
+      const cellStyle = (idx) => (aligns[idx] ? ` style="text-align:${aligns[idx]}"` : '');
+      const thead = `<thead><tr>${headCells.map((c, idx) => `<th${cellStyle(idx)}>${renderInline(c)}</th>`).join('')}</tr></thead>`;
+      const tbody = `<tbody>${bodyRows.map(row => `<tr>${row.map((c, idx) => `<td${cellStyle(idx)}>${renderInline(c)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+      out.push(`<div class="table-wrap"><table>${thead}${tbody}</table></div>`);
+      continue;
+    }
+
+    if (/^\s*[-*+]\s+/.test(line)) {
+      flushParagraph();
+      const items = [];
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*+]\s+/, ''));
+        i++;
+      }
+      out.push(`<ul>${items.map(it => `<li>${renderInline(it)}</li>`).join('')}</ul>`);
+      continue;
+    }
+
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      flushParagraph();
+      const items = [];
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+[.)]\s+/, ''));
+        i++;
+      }
+      out.push(`<ol>${items.map(it => `<li>${renderInline(it)}</li>`).join('')}</ol>`);
+      continue;
+    }
+
+    paragraphBuf.push(line.trim());
+    i++;
+  }
+  flushParagraph();
+  return out.join('');
+}
+
+// ---------- mermaid (CDN) ----------
+
+function mermaidTheme() {
+  return document.body.dataset.theme === 'dark' ? 'dark' : 'default';
+}
+
+function initMermaid() {
+  if (!window.mermaid) return;
+  window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: mermaidTheme() });
+}
+
+function renderMermaidDiagrams() {
+  if (!window.mermaid) return;
+  const nodes = els.main.querySelectorAll('pre.mermaid');
+  if (!nodes.length) return;
+  nodes.forEach(node => node.removeAttribute('data-processed'));
+  window.mermaid.run({ nodes }).catch(err => console.error('Mermaid render failed:', err));
 }
 
 function methodBadge(method) {
@@ -233,17 +383,50 @@ function renderSidebar() {
   items.push(`<ul class="sidebar-root">`);
   items.push(`<li><a href="#/introduction" class="sidebar-intro-link" data-op-id="introduction"><span>Introduction</span></a></li>`);
 
-  for (const group of doc.groups) {
+  // Tag `kind` (3.2) buckets top-level groups; tags without a `parent` render
+  // at the root, tags with one are only shown nested under their parent.
+  const topLevelGroups = doc.groups.filter(g => !g.parent);
+  const childGroups = (parentName) => doc.groups.filter(g => g.parent === parentName);
+
+  function renderGroup(group) {
+    const detailsId = uid('grp');
+    const children = childGroups(group.name);
+    return `
+      <li class="sidebar-group-wrap">
+        <details id="${detailsId}" class="sidebar-group" open>
+          <summary aria-controls="${detailsId}-content">
+            <span class="sidebar-group-label">${escapeHtml(group.name)}${group.kind ? ` <span class="text-muted">(${escapeHtml(group.kind)})</span>` : ''}</span>
+            <span class="sidebar-group-arrow">${chevronSvg()}</span>
+          </summary>
+          <ul id="${detailsId}-content" class="sidebar-group-items">
+            ${group.items.map(op => `
+              <li>
+                <a href="#/${op.id}" class="sidebar-op-link" data-op-id="${op.id}">
+                  ${methodBadge(op.method)}
+                  <span>${escapeHtml(op.summary)}</span>
+                </a>
+              </li>
+            `).join('')}
+            ${children.map(child => renderGroup(child)).join('')}
+          </ul>
+        </details>
+      </li>
+    `;
+  }
+
+  for (const group of topLevelGroups) items.push(renderGroup(group));
+
+  if (doc.webhooks && doc.webhooks.length) {
     const detailsId = uid('grp');
     items.push(`
       <li class="sidebar-group-wrap">
         <details id="${detailsId}" class="sidebar-group" open>
           <summary aria-controls="${detailsId}-content">
-            <span class="sidebar-group-label">${escapeHtml(group.name)}</span>
+            <span class="sidebar-group-label">Webhooks</span>
             <span class="sidebar-group-arrow">${chevronSvg()}</span>
           </summary>
           <ul id="${detailsId}-content" class="sidebar-group-items">
-            ${group.items.map(op => `
+            ${doc.webhooks.map(op => `
               <li>
                 <a href="#/${op.id}" class="sidebar-op-link" data-op-id="${op.id}">
                   ${methodBadge(op.method)}
@@ -389,6 +572,7 @@ function renderIntroduction() {
       ${renderBreadcrumb([{ label: 'Home', href: '#/introduction', icon: true }, { label: 'Introduction' }])}
       <h1>${escapeHtml(info.title || 'API Documentation')}</h1>
       ${info.version ? `<span class="schema-pill">v${escapeHtml(info.version)}</span>` : ''}
+      ${info.summary ? `<p class="param-desc">${escapeHtml(info.summary)}</p>` : ''}
       <div class="prose">${mdLite(info.description)}</div>
       <div class="intro-card">
         <header><h3>Base URL</h3></header>
@@ -410,6 +594,7 @@ function renderIntroduction() {
   `;
   els.tryit.innerHTML = '';
   els.tryit.hidden = true;
+  renderMermaidDiagrams();
 }
 
 function renderParamGroup(title, params) {
@@ -471,7 +656,9 @@ function renderResponses(op) {
     const exampleBody = typeof example === 'string' ? example : JSON.stringify(example, null, 2);
     return `
       <div role="tabpanel" id="${tabsId}-panel-${i}" aria-labelledby="${tabsId}-tab-${i}" tabindex="-1" ${i === 0 ? '' : 'hidden'}>
+        ${r.summary ? `<p class="response-desc"><strong>${escapeHtml(r.summary)}</strong></p>` : ''}
         <p class="response-desc">${escapeHtml(r.description)}</p>
+        ${r.headers.length ? renderParamGroup('Response Headers', r.headers) : ''}
         ${r.schema ? `
           <div class="response-body">
             <div class="response-body-head">
@@ -485,6 +672,22 @@ function renderResponses(op) {
             <pre id="${exampleViewId}" hidden><code>${escapeHtml(exampleBody)}</code></pre>
           </div>
         ` : '<p class="text-muted">No response body.</p>'}
+        ${r.links.length ? `
+          <details class="param-group">
+            <summary><span class="param-group-head"><span class="caret"></span>LINKS</span></summary>
+            <ul>
+              ${r.links.map(l => `
+                <li class="param-row">
+                  <div>
+                    <div class="param-row-head"><span class="param-name">${escapeHtml(l.name)}</span></div>
+                    ${l.description ? `<p class="param-desc">${escapeHtml(l.description)}</p>` : ''}
+                    <p class="param-desc">${l.operationId ? `operationId: <code>${escapeHtml(l.operationId)}</code>` : `operationRef: <code>${escapeHtml(l.operationRef)}</code>`}</p>
+                  </div>
+                </li>
+              `).join('')}
+            </ul>
+          </details>
+        ` : ''}
       </div>
     `;
   }).join('');
@@ -512,6 +715,7 @@ function renderOperation(op) {
         <code class="endpoint-url">${escapeHtml(doc.baseUrl + op.path)}</code>
       </div>
       ${op.description ? `<section class="doc-section"><div class="prose">${mdLite(op.description)}</div></section>` : ''}
+      ${op.externalDocs?.url ? `<p class="param-desc"><a href="${escapeHtml(op.externalDocs.url)}" target="_blank" rel="noopener">${escapeHtml(op.externalDocs.description || 'External documentation')}</a></p>` : ''}
 
       <section class="doc-section">
         <h2>Request</h2>
@@ -524,6 +728,17 @@ function renderOperation(op) {
             <summary><span class="param-group-head"><span class="caret"></span>BODY${op.parameters.body.required ? ' (required)' : ''}</span></summary>
             ${op.parameters.body.description ? `<p class="param-desc">${escapeHtml(op.parameters.body.description)}</p>` : ''}
             <p class="param-desc">content type: <code>${escapeHtml(op.parameters.body.contentType || 'application/json')}</code></p>
+            ${op.parameters.body.encoding ? `
+              <p class="param-desc">encoding:</p>
+              <ul class="schema-tree">
+                ${Object.entries(op.parameters.body.encoding).map(([prop, enc]) => `
+                  <li>
+                    <span class="param-name">${escapeHtml(prop)}</span>
+                    <span class="param-type">${escapeHtml(enc.contentType || '')}${enc.style ? ` style=${escapeHtml(enc.style)}` : ''}</span>
+                  </li>
+                `).join('')}
+              </ul>
+            ` : ''}
             <p class="param-desc">example${op.parameters.body.exampleIsAuto ? ' (auto)' : op.parameters.body.exampleLabel ? ` (${escapeHtml(op.parameters.body.exampleLabel)})` : ''}:</p>
             <pre><code>${escapeHtml(typeof op.parameters.body.example === 'string' ? op.parameters.body.example : JSON.stringify(op.parameters.body.example, null, 2))}</code></pre>
             ${renderSchemaTree(op.parameters.body.schema)}
@@ -537,8 +752,26 @@ function renderOperation(op) {
         </div>
         ${renderResponses(op)}
       </section>
+
+      ${op.callbacks.length ? `
+        <section class="doc-section">
+          <h2>Callbacks</h2>
+          <ul class="schema-tree">
+            ${op.callbacks.map(cb => `
+              <li>
+                ${methodBadge(cb.method)}
+                <span class="param-name">${escapeHtml(cb.name)}</span>
+                <code class="param-type">${escapeHtml(cb.expression)}</code>
+                ${cb.summary ? `<p class="param-desc">${escapeHtml(cb.summary)}</p>` : ''}
+                ${cb.description ? `<p class="param-desc">${escapeHtml(cb.description)}</p>` : ''}
+              </li>
+            `).join('')}
+          </ul>
+        </section>
+      ` : ''}
     </div>
   `;
+  renderMermaidDiagrams();
 }
 
 function languageTone(langId) {
@@ -606,7 +839,7 @@ function renderTryIt(op) {
               <select class="select" data-param="baseUrl">
                 ${serverOptions.map((server) => `
                   <option value="${escapeHtml(server.url)}" ${server.url === state.baseUrl ? 'selected' : ''}>
-                    ${escapeHtml(server.description ? `${server.description} - ${server.url}` : server.url)}
+                    ${escapeHtml([server.name, server.description].filter(Boolean).join(' — ') || server.url)}${server.name || server.description ? ` (${escapeHtml(server.url)})` : ''}
                   </option>
                 `).join('')}
               </select>
@@ -793,6 +1026,8 @@ function renderAuthDialogBody() {
       fields = `<p class="param-desc">Sent as ${def.in === 'query' ? 'query parameter' : 'header'} <code>${escapeHtml(def.name)}</code> using the <strong>API Key</strong> above.</p>`;
     } else if (def.type === 'basic') {
       fields = `<p class="param-desc">Sent as <code>Authorization: Basic &lt;API Key&gt;</code> using the <strong>API Key</strong> above.</p>`;
+    } else if (def.type === 'mutualTLS') {
+      fields = `<p class="param-desc">This scheme authenticates via a client TLS certificate negotiated at the transport layer &mdash; there is nothing to fill in here.</p>`;
     } else if (def.type === 'oauth2') {
       const scopes = Object.entries(def.scopes || {});
       const selectedScopes = current.scopes || Object.keys(def.scopes || {});
@@ -855,8 +1090,10 @@ function renderAuthDialogBody() {
         <summary>
           <span>${escapeHtml(key)}</span>
           <span class="badge" data-variant="outline">${escapeHtml(def.type)}</span>
+          ${def.deprecated ? '<span class="schema-pill">Deprecated</span>' : ''}
         </summary>
         ${def.description ? `<p class="param-desc">${escapeHtml(def.description)}</p>` : ''}
+        ${def.oauth2MetadataUrl ? `<p class="param-desc">Metadata: <a href="${escapeHtml(def.oauth2MetadataUrl)}" target="_blank" rel="noopener">${escapeHtml(def.oauth2MetadataUrl)}</a></p>` : ''}
         ${fields}
       </details>
     `;
@@ -1203,6 +1440,7 @@ function wireEvents() {
 
 async function main() {
   applyTheme(getPreferredTheme());
+  initMermaid();
   syncSidebarForViewport();
   window.addEventListener('resize', syncSidebarForViewport);
   wireEvents();

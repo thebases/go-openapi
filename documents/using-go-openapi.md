@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.1 |
+| Version | 1.2 |
 | Last updated | 2026-07-26 |
 | Applies to | `github.com/thebases/go-openapi` current repository layout |
 | Audience | Go developers integrating OpenAPI generation and docs UI into an application |
@@ -11,7 +11,9 @@
 
 ## Overview
 
-`go-openapi` helps you generate an OpenAPI 3.0 document in Go and expose a documentation UI for that document. You can use it with the `core` package only, or pair it with a framework integration for Gin, Fiber, Chi, Echo, or Iris.
+`go-openapi` helps you generate an OpenAPI document in Go and expose a documentation UI for that document. You can use it with the `core` package only, or pair it with a framework integration for Gin, Fiber, Chi, Echo, or Iris.
+
+The library can produce OpenAPI 3.0.4, 3.1.1, or 3.2.0 documents. `core.New` defaults to 3.2.0; use `core.WithOpenAPIVersion(...)` to pick a different version. See [Choosing an OpenAPI version](#choosing-an-openapi-version) below.
 
 This guide is for consumers of the module. It focuses on what to import, how to get your first API document working, how to expose `/docs`, and what to check when something does not behave as expected.
 
@@ -284,10 +286,34 @@ err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.js
 | `WithVersion(...)` | Sets the API version string | `0.0.1` | Change it to your release or schema version |
 | `WithDescription(...)` | Adds a description to the API metadata | empty | Change it when you want richer docs metadata |
 | `WithServer(url, description)` | Adds a server entry to the OpenAPI document | none | Change it when you want the document to advertise one or more environments |
+| `WithOpenAPIVersion(...)` | Selects the generated spec version: `0`=3.0.4, `1`=3.1.1, `2`=3.2.0 | `2` (3.2.0) | Change it when a consumer or tool requires an older OpenAPI version |
 | `WithDocStyle(...)` | Enables docs auto-mounting and selects the default UI provider | disabled | Change it when you want `/docs` and `/openapi.json` exposed automatically |
 | `DocsConfig.Provider` | Chooses the docs UI for a manual mount | inherited from API docs style or package default | Change it when a specific mount should use Swagger, Base, or Scalar |
 | `DocsConfig.Title` | Overrides the page title for a manual docs mount | inherited from API title when available | Change it when a docs page needs a different label |
 | `DocsConfig.DocumentURL` | Tells the docs UI where to fetch the OpenAPI JSON | `/openapi.json` in most standard mounts | Change it when your JSON is mounted elsewhere |
+
+---
+
+## Choosing an OpenAPI version
+
+`core.New` generates an OpenAPI 3.2.0 document by default. Pass `core.WithOpenAPIVersion(...)` to target a different supported version:
+
+```go
+api := core.New(
+    core.WithTitle("Merchant API"),
+    core.WithOpenAPIVersion(0), // 0 = 3.0.4, 1 = 3.1.1, 2 = 3.2.0 (default)
+)
+```
+
+| Value | OpenAPI version |
+|---|---|
+| `0` | 3.0.4 |
+| `1` | 3.1.1 |
+| `2` (default) | 3.2.0 |
+
+The Go schema model is always built JSON Schema 2020-12 shaped (OAS 3.1/3.2 semantics), using `Schema.Type` as either a single type name or a list of type names (for example `[]string{"string", "null"}` for a nullable string). When you request 3.0.4 output, `api.JSON()` downgrades that model to the OAS 3.0 Schema Object subset at serialization time: type lists collapse to a single `type` plus `nullable: true`, numeric `exclusiveMinimum`/`exclusiveMaximum` become boolean flags paired with `minimum`/`maximum`, `examples` collapses to a single `example`, and 3.1/3.2-only fields (`jsonSchemaDialect`, `webhooks`, `components.pathItems`, `license.identifier`, `const`) are dropped.
+
+Use `core.MakeNullable("string")` when building a schema by hand to get the correct 3.1/3.2-shaped nullable type list.
 
 ---
 
@@ -372,6 +398,9 @@ A: `integrations/chi`, `integrations/echo`, `integrations/fiber`, `integrations/
 
 **Q: When should I use `MountDocs(...)`?**
 A: Use it when you need a custom docs route, a custom JSON route, or a provider override for a specific mount.
+
+**Q: Which OpenAPI versions can I generate?**
+A: 3.0.4, 3.1.1, or 3.2.0, selected with `core.WithOpenAPIVersion(...)`. The default is 3.2.0. See [Choosing an OpenAPI version](#choosing-an-openapi-version).
 
 ---
 

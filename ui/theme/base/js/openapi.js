@@ -1,7 +1,7 @@
 // Fetches a Swagger 2.0 / OpenAPI document and normalizes it into a plain
 // model the rest of the app can render without knowing about $ref, tags, etc.
 
-const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'];
+const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'trace', 'query'];
 
 /**
  * Normalizes an OpenAPI server URL into an absolute URL without a trailing slash.
@@ -51,6 +51,13 @@ function firstExampleEntry(examples, spec) {
   for (const [name, exampleNode] of Object.entries(examples)) {
     const resolved = resolveExample(exampleNode, spec);
     if (!resolved) continue;
+    // 3.2 prefers dataValue/serializedValue over the legacy value/externalValue.
+    if (resolved.dataValue !== undefined) {
+      return { key: name, label: resolved.summary || name, value: resolved.dataValue, isAuto: false };
+    }
+    if (resolved.serializedValue !== undefined) {
+      return { key: name, label: resolved.summary || name, value: resolved.serializedValue, isAuto: false };
+    }
     if (resolved.value !== undefined) {
       return { key: name, label: resolved.summary || name, value: resolved.value, isAuto: false };
     }
@@ -141,13 +148,27 @@ function schemaRows(node, spec, { depth = 0, prefix = '', seen = new Set(), requ
   }
   const schema = resolveRef(node, spec);
   const rows = [];
+  const contentNote = schema.contentMediaType || schema.contentEncoding
+    ? [schema.contentMediaType, schema.contentEncoding && `encoding:${schema.contentEncoding}`].filter(Boolean).join(', ')
+    : '';
+  const discriminatorNote = schema.discriminator?.propertyName ? `discriminator: ${schema.discriminator.propertyName}` : '';
 
+  // Tuple validation (JSON Schema 2020-12): fixed-position items before the
+  // open-ended `items` schema for any remaining entries.
+  if (Array.isArray(schema.prefixItems)) {
+    if (selfRow) rows.push({ path: prefix || 'items', type: 'tuple', required, description: schema.description || '' });
+    schema.prefixItems.forEach((item, index) => {
+      rows.push(...schemaRows(item, spec, { depth: depth + 1, prefix: `${prefix}[${index}]`, seen, required: false }));
+    });
+    if (schema.items) rows.push(...schemaRows(schema.items, spec, { depth: depth + 1, prefix: `${prefix}[n]`, seen, required: false }));
+    return rows;
+  }
   if (schema.type === 'array' || schema.items) {
     if (selfRow) rows.push({ path: prefix || 'items', type: `array`, required, description: schema.description || '' });
     rows.push(...schemaRows(schema.items || {}, spec, { depth: depth + 1, prefix: `${prefix}[]`, seen, required: false }));
     return rows;
   }
-  if (schema.properties || schema.type === 'object') {
+  if (schema.properties || schema.type === 'object' || schema.patternProperties) {
     const requiredSet = new Set(schema.required || []);
     for (const [key, propSchema] of Object.entries(schema.properties || {})) {
       const resolved = resolveRef(propSchema, spec);
@@ -164,9 +185,26 @@ function schemaRows(node, spec, { depth = 0, prefix = '', seen = new Set(), requ
         rows.push(...schemaRows(propSchema, spec, { depth: depth + 1, prefix: path, seen, required: requiredSet.has(key), selfRow: false }));
       }
     }
+    for (const [pattern, propSchema] of Object.entries(schema.patternProperties || {})) {
+      const resolved = resolveRef(propSchema, spec);
+      rows.push({
+        path: prefix ? `${prefix}.<${pattern}>` : `<${pattern}>`,
+        type: resolved.type || 'any',
+        format: resolved.format || '',
+        required: false,
+        description: resolved.description || '',
+      });
+    }
     return rows;
   }
-  rows.push({ path: prefix || 'value', type: schema.type || 'any', format: schema.format || '', enum: schema.enum, required, description: schema.description || '' });
+  rows.push({
+    path: prefix || 'value',
+    type: schema.type || 'any',
+    format: schema.format || '',
+    enum: schema.enum,
+    required,
+    description: [schema.description, contentNote, discriminatorNote].filter(Boolean).join(' — '),
+  });
   return rows;
 }
 
@@ -234,6 +272,8 @@ function normalizeOperation(spec, path, method, opRaw) {
         schema: content.schema || null,
         description: requestBody.description || '',
         contentType,
+        encoding: content.encoding || null,
+        itemSchema: content.itemSchema || null,
         example: example ? example.value : generateExample(content.schema, spec),
         exampleLabel: example ? example.label : 'auto',
         exampleIsAuto: !example,
@@ -248,9 +288,13 @@ function normalizeOperation(spec, path, method, opRaw) {
       const example = content ? mediaTypeExample(content, spec) : null;
       return {
         status,
+        summary: response.summary || '',
         description: response.description || '',
         contentType: contentType || 'application/json',
         schema: content?.schema || response.schema || null,
+        encoding: content?.encoding || null,
+        headers: normalizeHeaders(response.headers, spec),
+        links: normalizeLinks(response.links, spec),
         example: example ? example.value : (content?.schema ? generateExample(content.schema, spec) : null),
         exampleLabel: example ? example.label : 'auto',
         exampleIsAuto: !example && !!content?.schema,
@@ -260,6 +304,8 @@ function normalizeOperation(spec, path, method, opRaw) {
       const na = status2num(a.status), nb = status2num(b.status);
       return na - nb;
     });
+
+  const callbacks = normalizeCallbacks(opRaw.callbacks, spec);
 
   const method_up = method.toUpperCase();
   const id = (opRaw.operationId || `${method}-${path}`).replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
@@ -276,8 +322,65 @@ function normalizeOperation(spec, path, method, opRaw) {
     consumes: opRaw.consumes || spec.consumes || (parameters.body ? ['application/json'] : []),
     parameters,
     responses,
+    callbacks,
+    externalDocs: opRaw.externalDocs || null,
     security: buildSecurity(opRaw, spec),
   };
+}
+
+// Header Object shares almost all fields with Parameter (minus name/in).
+function normalizeHeaders(headers, spec) {
+  if (!headers || typeof headers !== 'object') return [];
+  return Object.entries(headers).map(([name, raw]) => {
+    const h = resolveRef(raw, spec) || {};
+    const example = parameterExample({ ...h, in: 'header' }, spec);
+    return {
+      name,
+      required: !!h.required,
+      deprecated: !!h.deprecated,
+      type: h.schema?.type || 'string',
+      description: h.description || '',
+      example: example ? example.value : undefined,
+    };
+  });
+}
+
+function normalizeLinks(links, spec) {
+  if (!links || typeof links !== 'object') return [];
+  return Object.entries(links).map(([name, raw]) => {
+    const l = resolveRef(raw, spec) || {};
+    return {
+      name,
+      operationId: l.operationId || '',
+      operationRef: l.operationRef || '',
+      description: l.description || '',
+      parameters: l.parameters || {},
+    };
+  });
+}
+
+// Callback Object: name -> Path Item keyed by runtime expression. Flattened
+// into {name, expression, method, description}[] for a simple list view.
+function normalizeCallbacks(callbacks, spec) {
+  if (!callbacks || typeof callbacks !== 'object') return [];
+  const out = [];
+  for (const [name, callbackMap] of Object.entries(callbacks)) {
+    const resolvedMap = resolveRef(callbackMap, spec) || {};
+    for (const [expression, pathItemRaw] of Object.entries(resolvedMap)) {
+      const pathItem = resolveRef(pathItemRaw, spec) || {};
+      for (const method of METHODS) {
+        if (!pathItem[method]) continue;
+        out.push({
+          name,
+          expression,
+          method: method.toUpperCase(),
+          summary: pathItem[method].summary || '',
+          description: pathItem[method].description || '',
+        });
+      }
+    }
+  }
+  return out;
 }
 
 function status2num(status) {
@@ -298,30 +401,50 @@ async function loadOpenApiDoc(url) {
   const servers = Array.isArray(spec.servers) && spec.servers.length
     ? spec.servers
       .map((server) => ({
+        name: server?.name || '',
         url: normalizeServerUrl(server?.url, derivedBaseUrl, server?.variables),
         description: String(server?.description || '').trim(),
       }))
       .filter((server) => server.url)
-    : [{ url: derivedBaseUrl, description: '' }];
+    : [{ name: '', url: derivedBaseUrl, description: '' }];
   const baseUrl = servers[0]?.url || derivedBaseUrl;
 
   const tagOrder = (spec.tags || []).map(t => t.name);
   const tagMeta = new Map((spec.tags || []).map(t => [t.name, t]));
 
   const operations = [];
-  for (const [path, pathItem] of Object.entries(spec.paths || {})) {
+  for (const [path, rawPathItem] of Object.entries(spec.paths || {})) {
+    const pathItem = resolveRef(rawPathItem, spec) || {};
     for (const method of METHODS) {
       if (pathItem[method]) operations.push(normalizeOperation(spec, path, method, pathItem[method]));
+    }
+    // 3.2 additionalOperations: custom HTTP verbs (e.g. COPY, LOCK) keyed by name.
+    for (const [verb, opRaw] of Object.entries(pathItem.additionalOperations || {})) {
+      operations.push(normalizeOperation(spec, path, verb.toLowerCase(), opRaw));
+    }
+  }
+
+  const webhooks = [];
+  for (const [name, rawPathItem] of Object.entries(spec.webhooks || {})) {
+    const pathItem = resolveRef(rawPathItem, spec) || {};
+    for (const method of METHODS) {
+      if (pathItem[method]) webhooks.push(normalizeOperation(spec, name, method, pathItem[method]));
     }
   }
 
   const groupNames = [...new Set([...tagOrder, ...operations.map(o => o.tag)])];
-  const groups = groupNames.map(name => ({
-    id: name.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase(),
-    name,
-    description: tagMeta.get(name)?.description || '',
-    items: operations.filter(o => o.tag === name),
-  })).filter(g => g.items.length);
+  const groups = groupNames.map(name => {
+    const meta = tagMeta.get(name);
+    return {
+      id: name.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase(),
+      name,
+      summary: meta?.summary || '',
+      description: meta?.description || '',
+      parent: meta?.parent || '',
+      kind: meta?.kind || '',
+      items: operations.filter(o => o.tag === name),
+    };
+  }).filter(g => g.items.length);
 
   return {
     spec,
@@ -331,10 +454,11 @@ async function loadOpenApiDoc(url) {
     servers,
     securityDefinitions: normalizedSecurityDefinitions(spec),
     groups,
+    webhooks,
     resolveRef: (node) => resolveRef(node, spec),
     generateExample: (node) => generateExample(node, spec),
     schemaRows: (node) => schemaRows(node, spec),
-    findOperation: (id) => operations.find(o => o.id === id),
+    findOperation: (id) => operations.find(o => o.id === id) || webhooks.find(o => o.id === id),
     firstOperation: () => operations[0],
   };
 }

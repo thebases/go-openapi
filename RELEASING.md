@@ -28,6 +28,7 @@ Example modules under `examples/*` are not release artifacts.
 3. Read `README.md` as a new consumer and confirm every documented import path exists exactly as written.
 4. Confirm the docs-serving package path is still `github.com/thebases/go-openapi/ui`.
 5. Confirm examples remain example-only and still compile with their local `replace` directives.
+6. Confirm `core.New(...).JSON()` produces a valid document for all three supported `WithOpenAPIVersion` values (`0`=3.0.4, `1`=3.1.1, `2`=3.2.0, the default), and that 3.0.4 output has no 3.1/3.2-only fields (`jsonSchemaDialect`, `webhooks`, `components.pathItems`, `license.identifier`, `nullable`-as-type-array).
 
 ## Consumer validation
 
@@ -59,6 +60,7 @@ Every public tag should include release notes that state:
 
 - the root module version
 - the package surfaces covered by that root release
+- the supported OpenAPI spec versions (3.0.4, 3.1.1, 3.2.0) and the default (3.2.0)
 - any import-path or API compatibility notes
 - the minimum supported Go version
 - any known limitations that remain after the release

@@ -305,6 +305,19 @@ body[data-theme="dark"] .schema-name {
   color: var(--text-main);
 }
 
+body[data-theme="dark"] .prose ul,
+body[data-theme="dark"] .prose ol,
+body[data-theme="dark"] .prose h1,
+body[data-theme="dark"] .prose h2,
+body[data-theme="dark"] .prose h3,
+body[data-theme="dark"] .prose h4,
+body[data-theme="dark"] .prose h5,
+body[data-theme="dark"] .prose h6,
+body[data-theme="dark"] .prose th,
+body[data-theme="dark"] .prose td {
+  color: var(--text-main);
+}
+
 #auth-dialog {
   width: min(640px, calc(100vw - 2rem));
   max-height: min(720px, calc(100vh - 2rem));
@@ -732,6 +745,127 @@ body[data-theme="dark"] .schema-name {
   font-size: 0.9em;
 }
 
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  margin: 22px 0 10px;
+  font-weight: 800;
+  line-height: 1.35;
+  color: var(--text-main);
+}
+
+.prose h1:first-child,
+.prose h2:first-child,
+.prose h3:first-child {
+  margin-top: 0;
+}
+
+.prose h1 { font-size: 22px; }
+.prose h2 { font-size: 19px; }
+.prose h3 { font-size: 17px; }
+.prose h4, .prose h5, .prose h6 { font-size: 15px; }
+
+.prose ul,
+.prose ol {
+  margin: 0 0 14px;
+  padding-left: 22px;
+  color: #243549;
+  font-size: 15px;
+  line-height: 1.72;
+}
+
+.prose li + li {
+  margin-top: 4px;
+}
+
+.prose blockquote {
+  margin: 0 0 14px;
+  padding: 4px 16px;
+  border-left: 3px solid var(--accent);
+  color: var(--text-soft);
+  background: var(--panel-bg);
+  border-radius: 0 6px 6px 0;
+}
+
+.prose blockquote p {
+  margin-bottom: 8px;
+}
+
+.prose hr {
+  margin: 20px 0;
+  border: none;
+  border-top: 1px solid var(--line);
+}
+
+.prose img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+.prose .table-wrap {
+  margin: 0 0 16px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.prose th,
+.prose td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.prose thead th {
+  background: var(--panel-bg);
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.prose tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.prose pre.code-block {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.prose pre.code-block code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+
+.prose pre.mermaid {
+  margin: 0 0 16px;
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  background: var(--panel-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
 .breadcrumb {
   margin-bottom: 18px;
 }
@@ -820,8 +954,10 @@ body[data-theme="dark"] .schema-name {
 
 .method-badge {
   display: inline-flex;
+  flex: 0 0 48px;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   width: 48px;
   height: 24px;
   padding: 0 9px;
@@ -832,6 +968,8 @@ body[data-theme="dark"] .schema-name {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .method-badge[data-method="GET"] {

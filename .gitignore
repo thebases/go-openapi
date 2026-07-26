@@ -30,6 +30,7 @@ go.work.sum
 *tmp
 .agents
 .claude
+.codex
 CLAUDE.md
 GEMINI.md
 # Editor/IDE

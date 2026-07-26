@@ -40,7 +40,9 @@ func (r *Reflector) ReflectType(t reflect.Type) (*SchemaOrReference, error) {
 	}
 
 	if schema := specialSchema(t); schema != nil {
-		schema.Nullable = nullable
+		if nullable {
+			schema.Type = nullableType(schema.Type)
+		}
 		return InlineSchema(schema), nil
 	}
 
@@ -99,11 +101,12 @@ func (r *Reflector) ReflectType(t reflect.Type) (*SchemaOrReference, error) {
 
 	if nullable && ref != nil {
 		if ref.Value != nil {
-			ref.Value.Nullable = true
+			ref.Value.Type = nullableType(ref.Value.Type)
 		} else if ref.Ref != "" {
+			// allOf cannot express "ref OR null" since both branches must hold
+			// simultaneously, so a nullable $ref uses oneOf with an explicit null type.
 			ref = InlineSchema(&Schema{
-				Nullable: true,
-				AllOf:    []*SchemaOrReference{{Ref: ref.Ref}},
+				OneOf: []*SchemaOrReference{{Ref: ref.Ref}, {Value: &Schema{Type: "null"}}},
 			})
 		}
 	}
@@ -251,10 +254,10 @@ func applyFieldTags(ref *SchemaOrReference, field reflect.StructField) *SchemaOr
 		}
 	}
 	if value := field.Tag.Get("example"); value != "" {
-		schema.Example = parseLiteral(value, schema.Type)
+		schema.Example = parseLiteral(value, primaryTypeName(schema.Type))
 	}
 	if value := field.Tag.Get("default"); value != "" {
-		schema.Default = parseLiteral(value, schema.Type)
+		schema.Default = parseLiteral(value, primaryTypeName(schema.Type))
 	}
 	if value := field.Tag.Get("minimum"); value != "" {
 		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
@@ -283,7 +286,14 @@ func applyFieldTags(ref *SchemaOrReference, field reflect.StructField) *SchemaOr
 	schema.WriteOnly = field.Tag.Get("writeOnly") == "true"
 	schema.Deprecated = field.Tag.Get("deprecated") == "true"
 	if field.Type.Kind() == reflect.Pointer || field.Tag.Get("nullable") == "true" {
-		schema.Nullable = true
+		if len(schema.AllOf) == 1 && schema.AllOf[0].Ref != "" && schema.Type == nil {
+			// $ref wrapper produced by applyFieldTags itself: allOf cannot express
+			// nullability, so switch to oneOf with an explicit null branch.
+			schema.OneOf = []*SchemaOrReference{schema.AllOf[0], {Value: &Schema{Type: "null"}}}
+			schema.AllOf = nil
+		} else {
+			schema.Type = nullableType(schema.Type)
+		}
 	}
 
 	return target

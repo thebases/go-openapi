@@ -1,6 +1,6 @@
 # go-openapi
 
-A framework-neutral OpenAPI 3.0 document generation library for Go, with optional docs UI serving and framework-specific route registration helpers.
+A framework-neutral OpenAPI document generation library for Go, with optional docs UI serving and framework-specific route registration helpers. Generates OpenAPI 3.0.4, 3.1.1, or 3.2.0 documents (default 3.2.0) via `core.WithOpenAPIVersion`.
 
 [![License](https://img.shields.io/github/license/thebases/go-openapi)](LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thebases/go-openapi/core.svg)](https://pkg.go.dev/github.com/thebases/go-openapi/core)
@@ -91,7 +91,7 @@ The `ui` directory is the real import path. Its Go package name is `docs`.
 
 | Module | Purpose |
 | --- | --- |
-| `core` | Framework-neutral OpenAPI 3.0 document model, schema helpers, validation, and namespace helpers |
+| `core` | Framework-neutral OpenAPI 3.0/3.1/3.2 document model, schema helpers, validation, and namespace helpers |
 | `ui` | Embedded docs UI handlers for `swagger`, `base`, and `scalar` providers |
 | `integrations/chi` | Chi route registration helpers that register runtime routes and OpenAPI metadata together |
 | `integrations/echo` | Echo route registration helpers |
@@ -163,6 +163,17 @@ err := api.AddOperation(http.MethodGet, "/merchants/{id}", core.Operation{
 ```
 
 `core.RefSchema("Merchant")` only works after `Merchant` is registered under `components.schemas`.
+
+By default, `core.New` generates an OpenAPI 3.2.0 document. Pass `core.WithOpenAPIVersion(...)` to target a different spec version:
+
+```go
+api := core.New(
+	core.WithTitle("Merchant API"),
+	core.WithOpenAPIVersion(0), // 0 = 3.0.4, 1 = 3.1.1, 2 = 3.2.0 (default)
+)
+```
+
+The internal Schema Object model is always built JSON Schema 2020-12 shaped (OAS 3.1/3.2 semantics). Requesting 3.0.4 output downgrades that model at serialization time — e.g. `type: ["string", "null"]` becomes `type: string, nullable: true` — since OAS 3.0 uses an incompatible Schema Object subset.
 
 When `WithDocStyle(...)` is set, docs are mounted automatically on:
 

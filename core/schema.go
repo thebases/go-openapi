@@ -4,9 +4,9 @@ type Schema struct {
 	Title            string   `json:"title,omitempty"`
 	MultipleOf       *float64 `json:"multipleOf,omitempty"`
 	Maximum          *float64 `json:"maximum,omitempty"`
-	ExclusiveMaximum bool     `json:"exclusiveMaximum,omitempty"`
+	ExclusiveMaximum *float64 `json:"exclusiveMaximum,omitempty"`
 	Minimum          *float64 `json:"minimum,omitempty"`
-	ExclusiveMinimum bool     `json:"exclusiveMinimum,omitempty"`
+	ExclusiveMinimum *float64 `json:"exclusiveMinimum,omitempty"`
 
 	MaxLength *uint64 `json:"maxLength,omitempty"`
 	MinLength *uint64 `json:"minLength,omitempty"`
@@ -21,8 +21,12 @@ type Schema struct {
 
 	Required []string `json:"required,omitempty"`
 	Enum     []any    `json:"enum,omitempty"`
+	Const    any      `json:"const,omitempty"`
 
-	Type   string `json:"type,omitempty"`
+	// Type follows JSON Schema Draft 2020-12: a single type name (string) or a
+	// list of type names ([]string), which is how OAS 3.1 expresses nullability
+	// (e.g. []string{"string", "null"}) instead of the removed 3.0 `nullable` keyword.
+	Type   any    `json:"type,omitempty"`
 	Format string `json:"format,omitempty"`
 
 	AllOf []*SchemaOrReference `json:"allOf,omitempty"`
@@ -36,11 +40,12 @@ type Schema struct {
 
 	Description string `json:"description,omitempty"`
 	Default     any    `json:"default,omitempty"`
-	Nullable    bool   `json:"nullable,omitempty"`
 	ReadOnly    bool   `json:"readOnly,omitempty"`
 	WriteOnly   bool   `json:"writeOnly,omitempty"`
-	Example     any    `json:"example,omitempty"`
-	Deprecated  bool   `json:"deprecated,omitempty"`
+	// Example is deprecated by OAS 3.1 in favor of Examples; kept for compatibility.
+	Example    any    `json:"example,omitempty"`
+	Examples   []any  `json:"examples,omitempty"`
+	Deprecated bool   `json:"deprecated,omitempty"`
 
 	Discriminator *Discriminator         `json:"discriminator,omitempty"`
 	XML           *XML                   `json:"xml,omitempty"`
@@ -59,4 +64,49 @@ type XML struct {
 	Prefix    string `json:"prefix,omitempty"`
 	Attribute bool   `json:"attribute,omitempty"`
 	Wrapped   bool   `json:"wrapped,omitempty"`
+}
+
+// MakeNullable returns a JSON Schema 2020-12 type list that includes "null"
+// alongside the given type name, matching how OAS 3.1 expresses nullability.
+func MakeNullable(typeName string) []string {
+	return []string{typeName, "null"}
+}
+
+// nullableType adds "null" to a schema's Type, whether it is currently unset,
+// a single type name, or already a list of type names.
+func nullableType(t any) any {
+	switch value := t.(type) {
+	case nil:
+		return nil
+	case string:
+		if value == "null" {
+			return value
+		}
+		return []string{value, "null"}
+	case []string:
+		for _, entry := range value {
+			if entry == "null" {
+				return value
+			}
+		}
+		return append(append([]string{}, value...), "null")
+	default:
+		return t
+	}
+}
+
+// primaryTypeName returns the first non-null type name from a Schema.Type
+// value, for callers that need a single type hint (e.g. literal parsing).
+func primaryTypeName(t any) string {
+	switch value := t.(type) {
+	case string:
+		return value
+	case []string:
+		for _, entry := range value {
+			if entry != "null" {
+				return entry
+			}
+		}
+	}
+	return ""
 }

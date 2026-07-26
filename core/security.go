@@ -13,17 +13,19 @@ type SecurityScheme struct {
 }
 
 type OAuthFlows struct {
-	Implicit          *OAuthFlow `json:"implicit,omitempty"`
-	Password          *OAuthFlow `json:"password,omitempty"`
-	ClientCredentials *OAuthFlow `json:"clientCredentials,omitempty"`
-	AuthorizationCode *OAuthFlow `json:"authorizationCode,omitempty"`
+	Implicit            *OAuthFlow `json:"implicit,omitempty"`
+	Password            *OAuthFlow `json:"password,omitempty"`
+	ClientCredentials   *OAuthFlow `json:"clientCredentials,omitempty"`
+	AuthorizationCode   *OAuthFlow `json:"authorizationCode,omitempty"`
+	DeviceAuthorization *OAuthFlow `json:"deviceAuthorization,omitempty"`
 }
 
 type OAuthFlow struct {
-	AuthorizationURL string            `json:"authorizationUrl,omitempty"`
-	TokenURL         string            `json:"tokenUrl,omitempty"`
-	RefreshURL       string            `json:"refreshUrl,omitempty"`
-	Scopes           map[string]string `json:"scopes"`
+	AuthorizationURL       string            `json:"authorizationUrl,omitempty"`
+	DeviceAuthorizationURL string            `json:"deviceAuthorizationUrl,omitempty"`
+	TokenURL               string            `json:"tokenUrl,omitempty"`
+	RefreshURL             string            `json:"refreshUrl,omitempty"`
+	Scopes                 map[string]string `json:"scopes"`
 }
 
 type SecurityRequirement map[string][]string

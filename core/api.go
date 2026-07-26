@@ -23,6 +23,7 @@ type API struct {
 	mu sync.RWMutex
 
 	doc          Document
+	version      SpecVersion
 	docsProvider DocsProvider
 	docsEnabled  bool
 	docsMounted  map[string]bool
@@ -59,7 +60,7 @@ type irisNamespace struct{}
 func New(options ...Option) *API {
 	api := &API{
 		doc: Document{
-			OpenAPI: "3.0.3",
+			OpenAPI: DefaultVersion.String(),
 			Info: Info{
 				Title:   "API",
 				Version: "0.0.0",
@@ -70,6 +71,7 @@ func New(options ...Option) *API {
 				Examples: map[string]*ExampleOrReference{},
 			},
 		},
+		version:      DefaultVersion,
 		docsProvider: DocsSwagger,
 		docsMounted:  map[string]bool{},
 	}
@@ -225,7 +227,17 @@ func (api *API) JSON() ([]byte, error) {
 	if err := resolveDocumentDescriptions(&api.doc); err != nil {
 		return nil, err
 	}
-	return json.MarshalIndent(api.doc, "", "  ")
+	raw, err := json.MarshalIndent(api.doc, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+
+	// The Go model is JSON Schema 2020-12 shaped (OAS 3.1/3.2 semantics); 3.0.4
+	// output needs its Schema Objects downgraded to the incompatible 3.0 subset.
+	if api.version != Version30 {
+		return raw, nil
+	}
+	return downgradeToVersion30(raw)
 }
 
 func (api *API) docsTitle() string {

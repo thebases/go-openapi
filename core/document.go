@@ -1,15 +1,17 @@
 package core
 
 type Document struct {
-	OpenAPI      string                 `json:"openapi"`
-	Info         Info                   `json:"info"`
-	Servers      []Server               `json:"servers,omitempty"`
-	Paths        map[string]*PathItem   `json:"paths"`
-	Components   *Components            `json:"components,omitempty"`
-	Security     []SecurityRequirement  `json:"security,omitempty"`
-	Tags         []Tag                  `json:"tags,omitempty"`
-	ExternalDocs *ExternalDocumentation `json:"externalDocs,omitempty"`
-	Extensions   map[string]any         `json:"-"`
+	OpenAPI           string                 `json:"openapi"`
+	Info              Info                   `json:"info"`
+	JSONSchemaDialect string                 `json:"jsonSchemaDialect,omitempty"`
+	Servers           []Server               `json:"servers,omitempty"`
+	Paths             map[string]*PathItem   `json:"paths,omitempty"`
+	Webhooks          map[string]*PathItem   `json:"webhooks,omitempty"`
+	Components        *Components            `json:"components,omitempty"`
+	Security          []SecurityRequirement  `json:"security,omitempty"`
+	Tags              []Tag                  `json:"tags,omitempty"`
+	ExternalDocs      *ExternalDocumentation `json:"externalDocs,omitempty"`
+	Extensions        map[string]any         `json:"-"`
 }
 
 type Info struct {
@@ -31,6 +33,7 @@ type Contact struct {
 
 type License struct {
 	Name       string         `json:"name"`
+	Identifier string         `json:"identifier,omitempty"`
 	URL        string         `json:"url,omitempty"`
 	Extensions map[string]any `json:"-"`
 }

@@ -1,12 +1,48 @@
 package main
 
 import (
+	"encoding/base64"
 	"log"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	core "github.com/thebases/go-openapi/core"
 	api "github.com/thebases/go-openapi/integrations/gin"
 )
+
+// Fixed sample credentials for the docs "Try it" panel. These are demo-only
+// constants, not real secrets, and exist so every Security Scheme Object case
+// from the OpenAPI 3.2.0 spec can be exercised end-to-end against a running
+// handler instead of only being declared in the document.
+const (
+	sampleAPIKey      = "sample-api-key-123"
+	sampleBasicUser   = "sample-user"
+	sampleBasicPass   = "sample-pass"
+	sampleBearerToken = "sample-bearer-token-123"
+	sampleOAuthToken  = "sample-oauth-token-456"
+)
+
+// checkBasicAuth decodes a "Basic <base64(user:pass)>" Authorization header
+// and compares it against the fixed sample credentials.
+func checkBasicAuth(authHeader string) bool {
+	const prefix = "Basic "
+	if !strings.HasPrefix(authHeader, prefix) {
+		return false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(authHeader[len(prefix):])
+	if err != nil {
+		return false
+	}
+	user, pass, ok := strings.Cut(string(decoded), ":")
+	return ok && user == sampleBasicUser && pass == sampleBasicPass
+}
+
+// checkBearerAuth extracts the token from a "Bearer <token>" Authorization
+// header and compares it against the expected fixed sample token.
+func checkBearerAuth(authHeader, expected string) bool {
+	const prefix = "Bearer "
+	return strings.HasPrefix(authHeader, prefix) && authHeader[len(prefix):] == expected
+}
 
 func main() {
 	router := gin.New()
@@ -19,24 +55,92 @@ func main() {
 	for name, scheme := range map[string]*core.SecuritySchemeOrReference{
 		// The sample docs UI stores this credential in session storage as "apikey"
 		// and applies it to header/query apiKey schemes for secured operations.
+		// Fixed sample value: sample-api-key-123.
 		"merchantApiKey": {
 			Value: &core.SecurityScheme{
 				Type:        "apiKey",
 				Name:        "X-API-Key",
 				In:          "header",
-				Description: "Sample API key passed as the X-API-Key header.",
+				Description: "Sample API key passed as the X-API-Key header. Fixed sample value: sample-api-key-123.",
+			},
+		},
+		// HTTP Basic auth case from the Security Scheme Object spec.
+		// Fixed sample credentials: sample-user / sample-pass.
+		"merchantBasicAuth": {
+			Value: &core.SecurityScheme{
+				Type:        "http",
+				Scheme:      "basic",
+				Description: "Sample HTTP Basic auth. Fixed sample credentials: sample-user / sample-pass.",
+			},
+		},
+		// HTTP Bearer auth case, distinct from the oauth2 scheme below.
+		// Fixed sample token: sample-bearer-token-123.
+		"merchantBearerAuth": {
+			Value: &core.SecurityScheme{
+				Type:         "http",
+				Scheme:       "bearer",
+				BearerFormat: "JWT",
+				Description:  "Sample HTTP Bearer auth. Fixed sample token: sample-bearer-token-123.",
+			},
+		},
+		// mutualTLS case: declared for spec coverage; there is no fixed sample
+		// credential to try since it requires a real client certificate.
+		"merchantMutualTLS": {
+			Value: &core.SecurityScheme{
+				Type:        "mutualTLS",
+				Description: "Sample mutual TLS scheme. Cert must be signed by example.com CA (docs-only, not enforced).",
+			},
+		},
+		// openIdConnect case: declared for spec coverage; discovery/token
+		// exchange against a real IdP is out of scope for this sample.
+		"merchantOpenIdConnect": {
+			Value: &core.SecurityScheme{
+				Type:             "openIdConnect",
+				OpenIDConnectURL: "https://auth.example.com/.well-known/openid-configuration",
+				Description:      "Sample OpenID Connect discovery scheme (docs-only, not enforced).",
 			},
 		},
 		// The sample docs UI stores this credential in session storage as "oauthkey"
-		// and sends it as Bearer auth for oauth2 secured operations.
+		// and sends it as Bearer auth for oauth2 secured operations. All five
+		// OAuth Flow Object cases from the spec are populated on one scheme.
+		// Fixed sample access token: sample-oauth-token-456.
 		"merchantOAuth": {
 			Value: &core.SecurityScheme{
 				Type:        "oauth2",
-				Description: "Sample OAuth2 authorization-code flow for merchant write operations.",
+				Description: "Sample OAuth2 flows for merchant operations. Fixed sample access token: sample-oauth-token-456.",
 				Flows: &core.OAuthFlows{
+					Implicit: &core.OAuthFlow{
+						AuthorizationURL: "https://auth.example.com/oauth/authorize",
+						Scopes: map[string]string{
+							"merchant:read":  "Read merchant data",
+							"merchant:write": "Create and update merchants",
+						},
+					},
+					Password: &core.OAuthFlow{
+						TokenURL: "https://auth.example.com/oauth/token",
+						Scopes: map[string]string{
+							"merchant:read":  "Read merchant data",
+							"merchant:write": "Create and update merchants",
+						},
+					},
+					ClientCredentials: &core.OAuthFlow{
+						TokenURL: "https://auth.example.com/oauth/token",
+						Scopes: map[string]string{
+							"merchant:read":  "Read merchant data",
+							"merchant:write": "Create and update merchants",
+						},
+					},
 					AuthorizationCode: &core.OAuthFlow{
 						AuthorizationURL: "https://auth.example.com/oauth/authorize",
 						TokenURL:         "https://auth.example.com/oauth/token",
+						Scopes: map[string]string{
+							"merchant:read":  "Read merchant data",
+							"merchant:write": "Create and update merchants",
+						},
+					},
+					DeviceAuthorization: &core.OAuthFlow{
+						DeviceAuthorizationURL: "https://auth.example.com/oauth/device/authorize",
+						TokenURL:               "https://auth.example.com/oauth/token",
 						Scopes: map[string]string{
 							"merchant:read":  "Read merchant data",
 							"merchant:write": "Create and update merchants",
@@ -103,7 +207,7 @@ func main() {
 		log.Fatal(err)
 	}
 	// Reusable component examples keep the sample routes compact while exercising
-	// the OAS 3.0.3 precedence rules for referenced media-type examples.
+	// the OAS 3.1.1 precedence rules for referenced media-type examples.
 	for name, example := range map[string]*core.ExampleOrReference{
 		"MerchantLive": core.InlineExample(&core.Example{
 			Summary: "Live merchant",
@@ -227,6 +331,11 @@ func main() {
 			},
 		},
 	}), func(c *gin.Context) {
+		// Enforces the fixed sample apiKey so the docs "Try it" panel round-trips.
+		if c.GetHeader("X-API-Key") != sampleAPIKey {
+			c.JSON(401, gin.H{"error": "invalid or missing X-API-Key"})
+			return
+		}
 		c.JSON(200, gin.H{
 			"subject":   "svc_docs_demo",
 			"authType":  "apiKey",
@@ -234,6 +343,129 @@ func main() {
 			"scopes":    []string{"merchant:read"},
 			"issuedFor": "docs-example",
 		})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = api.GET(router, docs, core.Route("/auth/basic/profile", core.Operation{
+		OperationID: "getBasicProfile",
+		Summary:     "Get basic auth profile",
+		Description: "Dedicated sample endpoint that requires the configured HTTP Basic credential.",
+		Security:    []core.SecurityRequirement{{"merchantBasicAuth": {}}},
+		Responses: map[string]core.ResponseOrReference{
+			"200": {
+				Value: &core.Response{
+					Description: "Resolved basic-auth session",
+					Content: map[string]core.MediaType{
+						"application/json": {
+							Schema:  core.RefSchema("AuthSession"),
+							Example: map[string]any{"subject": "sample-user", "authType": "basic", "scopes": []string{}, "issuedFor": "docs-example"},
+						},
+					},
+				},
+			},
+		},
+	}), func(c *gin.Context) {
+		if !checkBasicAuth(c.GetHeader("Authorization")) {
+			c.Header("WWW-Authenticate", `Basic realm="docs-example"`)
+			c.JSON(401, gin.H{"error": "invalid or missing basic auth credentials"})
+			return
+		}
+		c.JSON(200, gin.H{
+			"subject":   sampleBasicUser,
+			"authType":  "basic",
+			"scopes":    []string{},
+			"issuedFor": "docs-example",
+		})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = api.GET(router, docs, core.Route("/auth/bearer/profile", core.Operation{
+		OperationID: "getBearerProfile",
+		Summary:     "Get bearer auth profile",
+		Description: "Dedicated sample endpoint that requires the configured HTTP Bearer credential (distinct from the oauth2 scheme).",
+		Security:    []core.SecurityRequirement{{"merchantBearerAuth": {}}},
+		Responses: map[string]core.ResponseOrReference{
+			"200": {
+				Value: &core.Response{
+					Description: "Resolved bearer-auth session",
+					Content: map[string]core.MediaType{
+						"application/json": {
+							Schema:  core.RefSchema("AuthSession"),
+							Example: map[string]any{"subject": "svc_docs_demo", "authType": "bearer", "tokenType": "Bearer", "scopes": []string{}, "issuedFor": "docs-example"},
+						},
+					},
+				},
+			},
+		},
+	}), func(c *gin.Context) {
+		if !checkBearerAuth(c.GetHeader("Authorization"), sampleBearerToken) {
+			c.JSON(401, gin.H{"error": "invalid or missing bearer token"})
+			return
+		}
+		c.JSON(200, gin.H{
+			"subject":   "svc_docs_demo",
+			"authType":  "bearer",
+			"tokenType": "Bearer",
+			"scopes":    []string{},
+			"issuedFor": "docs-example",
+		})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// mutualTLS and openIdConnect are declared purely for Security Scheme Object
+	// spec coverage: neither can be satisfied by a fixed sample key, so these
+	// routes document the scheme without enforcing it.
+	err = api.GET(router, docs, core.Route("/auth/mtls/profile", core.Operation{
+		OperationID: "getMutualTLSProfile",
+		Summary:     "Get mutualTLS profile (docs-only)",
+		Description: "Documents the mutualTLS Security Scheme Object case; not enforced by this sample.",
+		Security:    []core.SecurityRequirement{{"merchantMutualTLS": {}}},
+		Responses: map[string]core.ResponseOrReference{
+			"200": {
+				Value: &core.Response{
+					Description: "Static sample response",
+					Content: map[string]core.MediaType{
+						"application/json": {
+							Schema:  core.RefSchema("AuthSession"),
+							Example: map[string]any{"subject": "docs-only", "authType": "mutualTLS", "scopes": []string{}, "issuedFor": "docs-example"},
+						},
+					},
+				},
+			},
+		},
+	}), func(c *gin.Context) {
+		c.JSON(200, gin.H{"subject": "docs-only", "authType": "mutualTLS", "scopes": []string{}, "issuedFor": "docs-example"})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = api.GET(router, docs, core.Route("/auth/oidc/profile", core.Operation{
+		OperationID: "getOpenIDConnectProfile",
+		Summary:     "Get openIdConnect profile (docs-only)",
+		Description: "Documents the openIdConnect Security Scheme Object case; not enforced by this sample.",
+		Security:    []core.SecurityRequirement{{"merchantOpenIdConnect": {}}},
+		Responses: map[string]core.ResponseOrReference{
+			"200": {
+				Value: &core.Response{
+					Description: "Static sample response",
+					Content: map[string]core.MediaType{
+						"application/json": {
+							Schema:  core.RefSchema("AuthSession"),
+							Example: map[string]any{"subject": "docs-only", "authType": "openIdConnect", "scopes": []string{}, "issuedFor": "docs-example"},
+						},
+					},
+				},
+			},
+		},
+	}), func(c *gin.Context) {
+		c.JSON(200, gin.H{"subject": "docs-only", "authType": "openIdConnect", "scopes": []string{}, "issuedFor": "docs-example"})
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -260,6 +492,10 @@ func main() {
 			},
 		},
 	}), func(c *gin.Context) {
+		if !checkBearerAuth(c.GetHeader("Authorization"), sampleOAuthToken) {
+			c.JSON(401, gin.H{"error": "invalid or missing oauth2 bearer token"})
+			return
+		}
 		c.JSON(200, gin.H{
 			"subject":   "user_123",
 			"authType":  "oauth2",
@@ -275,7 +511,7 @@ func main() {
 	err = api.POST(router, docs, core.Route("/merchants", core.Operation{
 		OperationID: "createMerchant",
 		Summary:     "Create merchant",
-		Description: "Creates a merchant and demonstrates requestBody examples in OpenAPI 3.0.3.",
+		Description: "Creates a merchant and demonstrates requestBody examples in OpenAPI 3.1.1.",
 		Security:    []core.SecurityRequirement{{"merchantOAuth": {"merchant:write"}}},
 		RequestBody: &core.RequestBodyOrReference{
 			Value: &core.RequestBody{
