@@ -6,14 +6,10 @@
   <title>{{.Title}}</title>
   <link rel="icon" type="image/png" href="{{.AssetBasePath}}/img/favicon-32x32.png" sizes="32x32" />
   <link rel="icon" type="image/png" href="{{.AssetBasePath}}/img/favicon-16x16.png" sizes="16x16" />
-  <link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat-maia.cdn.min.css"
-    onerror="this.onerror=null;this.href='{{.AssetBasePath}}/css/basecoat-maia.cdn.min.css';"
-  />
   <link rel="stylesheet" href="{{.AssetBasePath}}/css/app.css" />
   <script>
     window.__DOCS_DOCUMENT_URL__ = "{{.DocumentURL}}";
+    window.__ASSET_BASE_PATH__ = "{{.AssetBasePath}}";
   </script>
 </head>
 <body class="app-body">
@@ -23,7 +19,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
       <a href="#/introduction" class="brand-link" aria-label="The Base">
-        <img src="{{.AssetBasePath}}/img/logo.svg" alt="The Base" class="brand-logo" />
+        <span class="brand-logo" aria-hidden="true"></span>
       </a>
       <!-- <nav class="header-nav" aria-label="Primary"> -->
         <!-- <a href="#/introduction" class="header-link is-active">Document</a> -->
@@ -85,7 +81,6 @@
     </main>
   </div>
 
-  <script src="{{.AssetBasePath}}/js/all.min.js" defer></script>
   <script src="{{.AssetBasePath}}/js/openapi.js" defer></script>
   <script src="{{.AssetBasePath}}/js/snippet.js" defer></script>
   <script src="{{.AssetBasePath}}/js/app.js" defer></script>

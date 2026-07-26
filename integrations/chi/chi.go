@@ -12,8 +12,8 @@ import (
 func mountDocs(router chi.Router, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
 	router.Handle(documentPath, documentHandler)
 	if aliasPath := docsDocumentAliasPath(docsPath, documentPath); aliasPath != "" {
-		// Keep a docs-scoped alias for the default document URL so requests under
-		// /docs do not fall through to the docs asset handler and return 404.
+		// Keep a docs-scoped alias for the configured document basename so
+		// requests under /docs do not fall through to the docs asset handler.
 		router.Handle(aliasPath, documentHandler)
 	}
 	router.Handle(docsPath, docsHandler)
@@ -68,9 +68,6 @@ func MountDocs(router chi.Router, api *core.API, docsPath, documentPath string, 
 }
 
 func docsDocumentAliasPath(docsPath, documentPath string) string {
-	if documentPath != "/openapi.json" {
-		return ""
-	}
 	trimmedDocsPath := strings.TrimRight(docsPath, "/")
 	if trimmedDocsPath == "" || trimmedDocsPath == "/" {
 		return ""

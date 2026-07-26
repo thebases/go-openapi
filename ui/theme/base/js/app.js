@@ -122,6 +122,12 @@ function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+function assetUrl(path) {
+  const base = window.__ASSET_BASE_PATH__ || '';
+  const cleanPath = String(path || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  return `${base}/${cleanPath}`;
+}
+
 // Minimal markdown: **bold**, `code`, [text](url), blank-line paragraphs.
 function mdLite(src) {
   if (!src) return '';
@@ -578,7 +584,7 @@ function renderTryIt(op) {
           ${LANGUAGES.map(l => `
             <button type="button" class="lang-chip${l.id === currentLang ? ' active' : ''}" data-lang="${l.id}">
               <span class="lang-chip-icon lang-${languageTone(l.id)}">
-                <img src="${escapeHtml(String(l.icon || '').replace(/\\\\/g, '/'))}" alt="" class="lang-chip-icon-image" loading="lazy">
+                <span class="lang-chip-icon-image" style="background-image:url('${escapeHtml(assetUrl(l.icon))}')"></span>
               </span>
               <span class="lang-chip-label">${escapeHtml(l.label)}</span>
             </button>

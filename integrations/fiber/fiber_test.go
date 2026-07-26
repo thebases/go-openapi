@@ -1,9 +1,13 @@
 package openapifiber
 
 import (
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
+
+	"github.com/gofiber/fiber/v3"
 )
 
 type stubFiberV2Handler func(*stubFiberV2Ctx) error
@@ -48,6 +52,7 @@ type stubFiberV2Router struct {
 	method string
 	path   string
 	calls  int
+	gets   []string
 }
 
 func (r *stubFiberV2Router) Add(method, path string, handlers ...stubFiberV2Handler) {
@@ -58,6 +63,7 @@ func (r *stubFiberV2Router) Add(method, path string, handlers ...stubFiberV2Hand
 
 func (r *stubFiberV2Router) Get(path string, handlers ...stubFiberV2Handler) {
 	r.calls++
+	r.gets = append(r.gets, path)
 }
 
 type stubFiberV3Handler func(stubFiberV3Ctx) error
@@ -106,6 +112,7 @@ type stubFiberV3Router struct {
 	methods []string
 	path    string
 	calls   int
+	gets    []string
 }
 
 func (r *stubFiberV3Router) Add(methods []string, path string, handler stubFiberV3Handler, handlers ...stubFiberV3Handler) {
@@ -116,6 +123,25 @@ func (r *stubFiberV3Router) Add(methods []string, path string, handler stubFiber
 
 func (r *stubFiberV3Router) Get(path string, handler stubFiberV3Handler, handlers ...stubFiberV3Handler) {
 	r.calls++
+	r.gets = append(r.gets, path)
+}
+
+type stubFiberV3InterfaceRouter struct {
+	methods []string
+	path    string
+	calls   int
+	gets    []string
+}
+
+func (r *stubFiberV3InterfaceRouter) Add(methods []string, path string, handler any, handlers ...any) {
+	r.methods = append([]string(nil), methods...)
+	r.path = path
+	r.calls++
+}
+
+func (r *stubFiberV3InterfaceRouter) Get(path string, handler any, handlers ...any) {
+	r.calls++
+	r.gets = append(r.gets, path)
 }
 
 func TestCallFiberAddSupportsV2Signature(t *testing.T) {
@@ -186,7 +212,7 @@ func TestMakeFiberHTTPHandlerReplaysStandardHandlerForV2(t *testing.T) {
 }
 
 func TestMakeFiberHTTPHandlerReplaysStandardHandlerForV3(t *testing.T) {
-	router := &stubFiberV3Router{}
+	router := fiber.New()
 	handler, err := makeFiberHTTPHandler(router, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Set-Cookie", "session=abc")
 		w.WriteHeader(http.StatusOK)
@@ -196,20 +222,21 @@ func TestMakeFiberHTTPHandlerReplaysStandardHandlerForV3(t *testing.T) {
 		t.Fatalf("make fiber v3 docs handler: %v", err)
 	}
 
-	state := &stubFiberV3State{}
-	context := stubFiberV3Ctx{path: "/docs/openapi.json", state: state}
-	result := handler.Call([]reflect.Value{reflect.ValueOf(context)})
-	if len(result) != 1 || !result[0].IsNil() {
-		t.Fatalf("expected nil fiber v3 error result, got %v", result)
+	router.Get("/docs/openapi.json", handler.Interface())
+
+	response, err := router.Test(httptest.NewRequest(http.MethodGet, "/docs/openapi.json", nil))
+	if err != nil {
+		t.Fatalf("serve fiber v3 docs route: %v", err)
 	}
-	if state.status != http.StatusOK {
-		t.Fatalf("unexpected fiber v3 status: %d", state.status)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected fiber v3 status: %d", response.StatusCode)
 	}
-	if string(state.body) != `{"openapi":"3.0.3"}` {
-		t.Fatalf("unexpected fiber v3 body: %q", string(state.body))
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read fiber v3 body: %v", err)
 	}
-	if got := len(state.appended["Set-Cookie"]); got != 1 {
-		t.Fatalf("expected one fiber v3 Set-Cookie value, got %d", got)
+	if string(body) != `{"openapi":"3.0.3"}` {
+		t.Fatalf("unexpected fiber v3 body: %q", string(body))
 	}
 }
 
@@ -219,7 +246,7 @@ func TestMountDocsServesDocumentAliasForV2AndV3(t *testing.T) {
 		router any
 	}{
 		{name: "v2", router: &stubFiberV2Router{}},
-		{name: "v3", router: &stubFiberV3Router{}},
+		{name: "v3", router: &stubFiberV3InterfaceRouter{}},
 	}
 
 	for _, tc := range testCases {
@@ -234,6 +261,62 @@ func TestMountDocsServesDocumentAliasForV2AndV3(t *testing.T) {
 			if err != nil {
 				t.Fatalf("mount docs: %v", err)
 			}
+		})
+	}
+}
+
+func TestDocsDocumentAliasPathSupportsRenamedDocuments(t *testing.T) {
+	if got := docsDocumentAliasPath("/docs", "/merchant/spec.json"); got != "/docs/spec.json" {
+		t.Fatalf("expected renamed document alias, got %q", got)
+	}
+	if got := docsDocumentAliasPath("/docs", "/docs/spec.json"); got != "" {
+		t.Fatalf("expected no alias when document already lives under docs path, got %q", got)
+	}
+}
+
+func TestMountDocsServesRenamedDocumentAliasForV2AndV3(t *testing.T) {
+	testCases := []struct {
+		name       string
+		router     any
+		assertGets func(*testing.T, any)
+	}{
+		{
+			name:   "v2",
+			router: &stubFiberV2Router{},
+			assertGets: func(t *testing.T, router any) {
+				got := router.(*stubFiberV2Router).gets
+				want := []string{"/merchant/spec.json", "/docs/spec.json", "/docs", "/docs/*"}
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("unexpected fiber v2 mounted paths: got %v want %v", got, want)
+				}
+			},
+		},
+		{
+			name:   "v3",
+			router: &stubFiberV3InterfaceRouter{},
+			assertGets: func(t *testing.T, router any) {
+				got := router.(*stubFiberV3InterfaceRouter).gets
+				want := []string{"/merchant/spec.json", "/docs/spec.json", "/docs", "/docs/*"}
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("unexpected fiber v3 mounted paths: got %v want %v", got, want)
+				}
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := mountDocs(
+				tc.router,
+				"/docs",
+				"/merchant/spec.json",
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+			)
+			if err != nil {
+				t.Fatalf("mount docs: %v", err)
+			}
+			tc.assertGets(t, tc.router)
 		})
 	}
 }

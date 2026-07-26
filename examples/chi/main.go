@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	core "github.com/thebases/go-openapi/core"
@@ -11,12 +12,20 @@ import (
 )
 
 func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
+	addr := ":" + port
+	baseURL := "http://localhost:" + port
+
 	router := chi.NewRouter()
 	doc := core.New(
 		core.WithTitle("Chi Example API"),
 		core.WithDescription("descriptions/api.md"),
 		core.WithVersion("1.0.0"),
 		core.WithDocStyle(core.DocsSwagger),
+		core.WithServer(baseURL, "Local server"),
 	)
 	for name, scheme := range map[string]*core.SecuritySchemeOrReference{
 		// The sample docs UI stores this credential in session storage as "apikey"
@@ -329,5 +338,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Fatal(http.ListenAndServe(":3000", router))
+	// Emit the resolved URLs before blocking so the example feels responsive
+	// and callers can move it off a busy port via PORT without changing code.
+	log.Printf("Chi Example API listening on %s", baseURL)
+	log.Printf("Docs: %s/docs/", baseURL)
+	log.Printf("OpenAPI: %s/openapi.json", baseURL)
+	log.Fatal(http.ListenAndServe(addr, router))
 }
