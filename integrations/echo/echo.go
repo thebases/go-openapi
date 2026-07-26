@@ -17,8 +17,8 @@ type Router interface {
 func mountDocs(router Router, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
 	router.GET(documentPath, echo.WrapHandler(documentHandler))
 	if aliasPath := docsDocumentAliasPath(docsPath, documentPath); aliasPath != "" {
-		// Keep a docs-scoped alias for the default document URL so requests under
-		// /docs do not fall through to the docs asset handler and return 404.
+		// Keep a docs-scoped alias for the configured document basename so
+		// requests under /docs do not fall through to the docs asset handler.
 		router.GET(aliasPath, echo.WrapHandler(documentHandler))
 	}
 	router.GET(docsPath, echo.WrapHandler(docsHandler))
@@ -70,9 +70,6 @@ func MountDocs(router Router, api *core.API, docsPath, documentPath string, conf
 }
 
 func docsDocumentAliasPath(docsPath, documentPath string) string {
-	if documentPath != "/openapi.json" {
-		return ""
-	}
 	trimmedDocsPath := strings.TrimRight(docsPath, "/")
 	if trimmedDocsPath == "" || trimmedDocsPath == "/" {
 		return ""

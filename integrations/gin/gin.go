@@ -12,8 +12,8 @@ import (
 func mountDocs(router gin.IRoutes, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
 	router.GET(documentPath, gin.WrapH(documentHandler))
 	if aliasPath := docsDocumentAliasPath(docsPath, documentPath); aliasPath != "" {
-		// Keep a docs-scoped alias for the default document URL so requests under
-		// /docs do not fall through to the docs asset handler and return 404.
+		// Keep a docs-scoped alias for the configured document basename so
+		// requests under /docs do not fall through to the docs asset handler.
 		router.GET(aliasPath, gin.WrapH(documentHandler))
 	}
 	router.GET(docsPath, gin.WrapH(docsHandler))
@@ -62,9 +62,6 @@ func MountDocs(router gin.IRoutes, api *core.API, docsPath, documentPath string,
 }
 
 func docsDocumentAliasPath(docsPath, documentPath string) string {
-	if documentPath != "/openapi.json" {
-		return ""
-	}
 	trimmedDocsPath := strings.TrimRight(docsPath, "/")
 	if trimmedDocsPath == "" || trimmedDocsPath == "/" {
 		return ""

@@ -48,6 +48,7 @@ type stubFiberV2Router struct {
 	method string
 	path   string
 	calls  int
+	gets   []string
 }
 
 func (r *stubFiberV2Router) Add(method, path string, handlers ...stubFiberV2Handler) {
@@ -58,6 +59,7 @@ func (r *stubFiberV2Router) Add(method, path string, handlers ...stubFiberV2Hand
 
 func (r *stubFiberV2Router) Get(path string, handlers ...stubFiberV2Handler) {
 	r.calls++
+	r.gets = append(r.gets, path)
 }
 
 type stubFiberV3Handler func(stubFiberV3Ctx) error
@@ -106,6 +108,7 @@ type stubFiberV3Router struct {
 	methods []string
 	path    string
 	calls   int
+	gets    []string
 }
 
 func (r *stubFiberV3Router) Add(methods []string, path string, handler stubFiberV3Handler, handlers ...stubFiberV3Handler) {
@@ -116,6 +119,7 @@ func (r *stubFiberV3Router) Add(methods []string, path string, handler stubFiber
 
 func (r *stubFiberV3Router) Get(path string, handler stubFiberV3Handler, handlers ...stubFiberV3Handler) {
 	r.calls++
+	r.gets = append(r.gets, path)
 }
 
 func TestCallFiberAddSupportsV2Signature(t *testing.T) {
@@ -234,6 +238,62 @@ func TestMountDocsServesDocumentAliasForV2AndV3(t *testing.T) {
 			if err != nil {
 				t.Fatalf("mount docs: %v", err)
 			}
+		})
+	}
+}
+
+func TestDocsDocumentAliasPathSupportsRenamedDocuments(t *testing.T) {
+	if got := docsDocumentAliasPath("/docs", "/merchant/spec.json"); got != "/docs/spec.json" {
+		t.Fatalf("expected renamed document alias, got %q", got)
+	}
+	if got := docsDocumentAliasPath("/docs", "/docs/spec.json"); got != "" {
+		t.Fatalf("expected no alias when document already lives under docs path, got %q", got)
+	}
+}
+
+func TestMountDocsServesRenamedDocumentAliasForV2AndV3(t *testing.T) {
+	testCases := []struct {
+		name       string
+		router     any
+		assertGets func(*testing.T, any)
+	}{
+		{
+			name:   "v2",
+			router: &stubFiberV2Router{},
+			assertGets: func(t *testing.T, router any) {
+				got := router.(*stubFiberV2Router).gets
+				want := []string{"/merchant/spec.json", "/docs/spec.json", "/docs", "/docs/*"}
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("unexpected fiber v2 mounted paths: got %v want %v", got, want)
+				}
+			},
+		},
+		{
+			name:   "v3",
+			router: &stubFiberV3Router{},
+			assertGets: func(t *testing.T, router any) {
+				got := router.(*stubFiberV3Router).gets
+				want := []string{"/merchant/spec.json", "/docs/spec.json", "/docs", "/docs/*"}
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("unexpected fiber v3 mounted paths: got %v want %v", got, want)
+				}
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := mountDocs(
+				tc.router,
+				"/docs",
+				"/merchant/spec.json",
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+			)
+			if err != nil {
+				t.Fatalf("mount docs: %v", err)
+			}
+			tc.assertGets(t, tc.router)
 		})
 	}
 }

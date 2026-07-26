@@ -26,8 +26,8 @@ func mountDocs(router any, docsPath, documentPath string, docsHandler, documentH
 		return err
 	}
 	if aliasPath := docsDocumentAliasPath(docsPath, documentPath); aliasPath != "" {
-		// Keep a docs-scoped alias for the default document URL so requests under
-		// /docs do not fall through to the docs asset handler and return 404.
+		// Keep a docs-scoped alias for the configured document basename so
+		// requests under /docs do not fall through to the docs asset handler.
 		if err := callFiberMethod(router, "Get", []any{aliasPath}, []any{documentRouteHandler.Interface()}); err != nil {
 			return err
 		}
@@ -302,9 +302,6 @@ func (w *fiberHTTPWriter) statusOrOK() int {
 }
 
 func docsDocumentAliasPath(docsPath, documentPath string) string {
-	if documentPath != "/openapi.json" {
-		return ""
-	}
 	trimmedDocsPath := strings.TrimRight(docsPath, "/")
 	if trimmedDocsPath == "" || trimmedDocsPath == "/" {
 		return ""
