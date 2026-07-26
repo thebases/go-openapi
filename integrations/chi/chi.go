@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	openapi "github.com/thebases/go-openapi/openapi"
+	core "github.com/thebases/go-openapi/core"
 )
 
 func mountDocs(router chi.Router, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
@@ -21,7 +21,7 @@ func mountDocs(router chi.Router, docsPath, documentPath string, docsHandler, do
 	return nil
 }
 
-var routes = openapi.RouteRegistrar[chi.Router, http.HandlerFunc]{
+var routes = core.RouteRegistrar[chi.Router, http.HandlerFunc]{
 	Register: func(router chi.Router, method, path string, handlers ...http.HandlerFunc) {
 		if len(handlers) == 0 {
 			return
@@ -31,38 +31,38 @@ var routes = openapi.RouteRegistrar[chi.Router, http.HandlerFunc]{
 	MountDocs: mountDocs,
 }
 
-var docs = openapi.DocsRegistrar[chi.Router]{
+var docs = core.DocsRegistrar[chi.Router]{
 	Mount: mountDocs,
 }
 
-func Handle(router chi.Router, api *openapi.API, spec openapi.RouteSpec, handler http.Handler) error {
-	if err := openapi.Chi.Handle(router, api, spec, handler); err != nil {
+func Handle(router chi.Router, api *core.API, spec core.RouteSpec, handler http.Handler) error {
+	if err := core.Chi.Handle(router, api, spec, handler); err != nil {
 		return err
 	}
 	return nil
 }
 
-func GET(router chi.Router, api *openapi.API, spec openapi.RouteSpec, handler http.HandlerFunc) error {
+func GET(router chi.Router, api *core.API, spec core.RouteSpec, handler http.HandlerFunc) error {
 	return routes.GET(router, api, spec, handler)
 }
 
-func POST(router chi.Router, api *openapi.API, spec openapi.RouteSpec, handler http.HandlerFunc) error {
+func POST(router chi.Router, api *core.API, spec core.RouteSpec, handler http.HandlerFunc) error {
 	return routes.POST(router, api, spec, handler)
 }
 
-func PUT(router chi.Router, api *openapi.API, spec openapi.RouteSpec, handler http.HandlerFunc) error {
+func PUT(router chi.Router, api *core.API, spec core.RouteSpec, handler http.HandlerFunc) error {
 	return routes.PUT(router, api, spec, handler)
 }
 
-func PATCH(router chi.Router, api *openapi.API, spec openapi.RouteSpec, handler http.HandlerFunc) error {
+func PATCH(router chi.Router, api *core.API, spec core.RouteSpec, handler http.HandlerFunc) error {
 	return routes.PATCH(router, api, spec, handler)
 }
 
-func DELETE(router chi.Router, api *openapi.API, spec openapi.RouteSpec, handler http.HandlerFunc) error {
+func DELETE(router chi.Router, api *core.API, spec core.RouteSpec, handler http.HandlerFunc) error {
 	return routes.DELETE(router, api, spec, handler)
 }
 
-func MountDocs(router chi.Router, api *openapi.API, docsPath, documentPath string, config openapi.DocsConfig) error {
+func MountDocs(router chi.Router, api *core.API, docsPath, documentPath string, config core.DocsConfig) error {
 	return docs.MountDocs(router, api, docsPath, documentPath, config)
 }
 

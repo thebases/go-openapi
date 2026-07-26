@@ -1,4 +1,4 @@
-package openapi
+package core
 
 import (
 	"os"

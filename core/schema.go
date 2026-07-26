@@ -1,4 +1,4 @@
-package openapi
+package core
 
 type Schema struct {
 	Title            string   `json:"title,omitempty"`

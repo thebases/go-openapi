@@ -1,4 +1,4 @@
-package openapi
+package core
 
 type Document struct {
 	OpenAPI      string                 `json:"openapi"`

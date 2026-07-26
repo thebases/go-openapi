@@ -6,23 +6,23 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	core "github.com/thebases/go-openapi/core"
 	api "github.com/thebases/go-openapi/integrations/chi"
-	openapi "github.com/thebases/go-openapi/openapi"
 )
 
 func main() {
 	router := chi.NewRouter()
-	doc := openapi.New(
-		openapi.WithTitle("Chi Example API"),
-		openapi.WithDescription("descriptions/api.md"),
-		openapi.WithVersion("1.0.0"),
-		openapi.WithDocStyle(openapi.DocsSwagger),
+	doc := core.New(
+		core.WithTitle("Chi Example API"),
+		core.WithDescription("descriptions/api.md"),
+		core.WithVersion("1.0.0"),
+		core.WithDocStyle(core.DocsSwagger),
 	)
-	for name, scheme := range map[string]*openapi.SecuritySchemeOrReference{
+	for name, scheme := range map[string]*core.SecuritySchemeOrReference{
 		// The sample docs UI stores this credential in session storage as "apikey"
 		// and applies it to header/query apiKey schemes for secured operations.
 		"merchantApiKey": {
-			Value: &openapi.SecurityScheme{
+			Value: &core.SecurityScheme{
 				Type:        "apiKey",
 				Name:        "X-API-Key",
 				In:          "header",
@@ -32,11 +32,11 @@ func main() {
 		// The sample docs UI stores this credential in session storage as "oauthkey"
 		// and sends it as Bearer auth for oauth2 secured operations.
 		"merchantOAuth": {
-			Value: &openapi.SecurityScheme{
+			Value: &core.SecurityScheme{
 				Type:        "oauth2",
 				Description: "Sample OAuth2 authorization-code flow for merchant write operations.",
-				Flows: &openapi.OAuthFlows{
-					AuthorizationCode: &openapi.OAuthFlow{
+				Flows: &core.OAuthFlows{
+					AuthorizationCode: &core.OAuthFlow{
 						AuthorizationURL: "https://auth.example.com/oauth/authorize",
 						TokenURL:         "https://auth.example.com/oauth/token",
 						Scopes: map[string]string{
@@ -52,7 +52,7 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	if err := doc.RegisterSchema("Merchant", openapi.InlineSchema(&openapi.Schema{
+	if err := doc.RegisterSchema("Merchant", core.InlineSchema(&core.Schema{
 		Type:        "object",
 		Description: "descriptions/merchant-schema.md",
 		Example: map[string]any{
@@ -60,30 +60,30 @@ func main() {
 			"name":   "Schema Merchant",
 			"status": "active",
 		},
-		Properties: map[string]*openapi.SchemaOrReference{
-			"id":     openapi.InlineSchema(&openapi.Schema{Type: "string", Example: "mrc_schema_001"}),
-			"name":   openapi.InlineSchema(&openapi.Schema{Type: "string", Example: "Schema Merchant"}),
-			"status": openapi.InlineSchema(&openapi.Schema{Type: "string", Enum: []any{"active", "inactive"}, Example: "active"}),
+		Properties: map[string]*core.SchemaOrReference{
+			"id":     core.InlineSchema(&core.Schema{Type: "string", Example: "mrc_schema_001"}),
+			"name":   core.InlineSchema(&core.Schema{Type: "string", Example: "Schema Merchant"}),
+			"status": core.InlineSchema(&core.Schema{Type: "string", Enum: []any{"active", "inactive"}, Example: "active"}),
 		},
 		Required: []string{"id", "name", "status"},
 	})); err != nil {
 		log.Fatal(err)
 	}
-	if err := doc.RegisterSchema("MerchantUpsertRequest", openapi.InlineSchema(&openapi.Schema{
+	if err := doc.RegisterSchema("MerchantUpsertRequest", core.InlineSchema(&core.Schema{
 		Type: "object",
 		Example: map[string]any{
 			"name":   "The Base Labs",
 			"status": "active",
 		},
-		Properties: map[string]*openapi.SchemaOrReference{
-			"name":   openapi.InlineSchema(&openapi.Schema{Type: "string", Example: "The Base Labs"}),
-			"status": openapi.InlineSchema(&openapi.Schema{Type: "string", Enum: []any{"active", "inactive"}, Example: "active"}),
+		Properties: map[string]*core.SchemaOrReference{
+			"name":   core.InlineSchema(&core.Schema{Type: "string", Example: "The Base Labs"}),
+			"status": core.InlineSchema(&core.Schema{Type: "string", Enum: []any{"active", "inactive"}, Example: "active"}),
 		},
 		Required: []string{"name", "status"},
 	})); err != nil {
 		log.Fatal(err)
 	}
-	if err := doc.RegisterSchema("AuthSession", openapi.InlineSchema(&openapi.Schema{
+	if err := doc.RegisterSchema("AuthSession", core.InlineSchema(&core.Schema{
 		Type: "object",
 		Example: map[string]any{
 			"subject":   "svc_docs_demo",
@@ -92,13 +92,13 @@ func main() {
 			"scopes":    []string{"merchant:read"},
 			"issuedFor": "docs-example",
 		},
-		Properties: map[string]*openapi.SchemaOrReference{
-			"subject":   openapi.InlineSchema(&openapi.Schema{Type: "string", Example: "svc_docs_demo"}),
-			"authType":  openapi.InlineSchema(&openapi.Schema{Type: "string", Enum: []any{"apiKey", "oauth2"}, Example: "apiKey"}),
-			"apiKeyId":  openapi.InlineSchema(&openapi.Schema{Type: "string", Example: "key_live_docs"}),
-			"tokenType": openapi.InlineSchema(&openapi.Schema{Type: "string", Example: "Bearer"}),
-			"scopes":    openapi.ArraySchema(openapi.InlineSchema(&openapi.Schema{Type: "string", Example: "merchant:read"})),
-			"issuedFor": openapi.InlineSchema(&openapi.Schema{Type: "string", Example: "docs-example"}),
+		Properties: map[string]*core.SchemaOrReference{
+			"subject":   core.InlineSchema(&core.Schema{Type: "string", Example: "svc_docs_demo"}),
+			"authType":  core.InlineSchema(&core.Schema{Type: "string", Enum: []any{"apiKey", "oauth2"}, Example: "apiKey"}),
+			"apiKeyId":  core.InlineSchema(&core.Schema{Type: "string", Example: "key_live_docs"}),
+			"tokenType": core.InlineSchema(&core.Schema{Type: "string", Example: "Bearer"}),
+			"scopes":    core.ArraySchema(core.InlineSchema(&core.Schema{Type: "string", Example: "merchant:read"})),
+			"issuedFor": core.InlineSchema(&core.Schema{Type: "string", Example: "docs-example"}),
 		},
 		Required: []string{"subject", "authType", "scopes", "issuedFor"},
 	})); err != nil {
@@ -106,8 +106,8 @@ func main() {
 	}
 	// Reusable component examples keep the sample routes compact while exercising
 	// the OAS 3.0.3 precedence rules for referenced media-type examples.
-	for name, example := range map[string]*openapi.ExampleOrReference{
-		"MerchantLive": openapi.InlineExample(&openapi.Example{
+	for name, example := range map[string]*core.ExampleOrReference{
+		"MerchantLive": core.InlineExample(&core.Example{
 			Summary: "Live merchant",
 			Value: map[string]any{
 				"id":     "mrc_live_001",
@@ -115,7 +115,7 @@ func main() {
 				"status": "active",
 			},
 		}),
-		"MerchantSandbox": openapi.InlineExample(&openapi.Example{
+		"MerchantSandbox": core.InlineExample(&core.Example{
 			Summary: "Sandbox merchant",
 			Value: map[string]any{
 				"id":     "mrc_sandbox_001",
@@ -123,14 +123,14 @@ func main() {
 				"status": "inactive",
 			},
 		}),
-		"MerchantCreate": openapi.InlineExample(&openapi.Example{
+		"MerchantCreate": core.InlineExample(&core.Example{
 			Summary: "Create merchant request",
 			Value: map[string]any{
 				"name":   "The Base Labs",
 				"status": "active",
 			},
 		}),
-		"ApiKeySession": openapi.InlineExample(&openapi.Example{
+		"ApiKeySession": core.InlineExample(&core.Example{
 			Summary: "Authenticated API key session",
 			Value: map[string]any{
 				"subject":   "svc_docs_demo",
@@ -140,7 +140,7 @@ func main() {
 				"issuedFor": "docs-example",
 			},
 		}),
-		"OAuthSession": openapi.InlineExample(&openapi.Example{
+		"OAuthSession": core.InlineExample(&core.Example{
 			Summary: "Authenticated OAuth session",
 			Value: map[string]any{
 				"subject":   "user_123",
@@ -155,40 +155,40 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	err := api.GET(router, doc, openapi.Route("/merchants/{id}", openapi.Operation{
+	err := api.GET(router, doc, core.Route("/merchants/{id}", core.Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
 		Description: "descriptions/merchant-operation.md",
-		Security:    []openapi.SecurityRequirement{{"merchantApiKey": {}}},
-		Parameters: []openapi.ParameterOrReference{
-			{Value: &openapi.Parameter{
+		Security:    []core.SecurityRequirement{{"merchantApiKey": {}}},
+		Parameters: []core.ParameterOrReference{
+			{Value: &core.Parameter{
 				Name:        "id",
 				In:          "path",
 				Required:    true,
 				Description: "descriptions/merchant-id.md",
-				Schema:      openapi.InlineSchema(&openapi.Schema{Type: "string", Example: "mrc_schema_001"}),
+				Schema:      core.InlineSchema(&core.Schema{Type: "string", Example: "mrc_schema_001"}),
 				Example:     "mrc_live_001",
 			}},
-			{Value: &openapi.Parameter{
+			{Value: &core.Parameter{
 				Name:   "env",
 				In:     "query",
-				Schema: openapi.InlineSchema(&openapi.Schema{Type: "string", Enum: []any{"live", "sandbox"}, Example: "live"}),
-				Examples: map[string]*openapi.ExampleOrReference{
-					"live":    openapi.InlineExample(&openapi.Example{Summary: "Live data", Value: "live"}),
-					"sandbox": openapi.InlineExample(&openapi.Example{Summary: "Sandbox data", Value: "sandbox"}),
+				Schema: core.InlineSchema(&core.Schema{Type: "string", Enum: []any{"live", "sandbox"}, Example: "live"}),
+				Examples: map[string]*core.ExampleOrReference{
+					"live":    core.InlineExample(&core.Example{Summary: "Live data", Value: "live"}),
+					"sandbox": core.InlineExample(&core.Example{Summary: "Sandbox data", Value: "sandbox"}),
 				},
 			}},
 		},
-		Responses: map[string]openapi.ResponseOrReference{
+		Responses: map[string]core.ResponseOrReference{
 			"200": {
-				Value: &openapi.Response{
+				Value: &core.Response{
 					Description: "descriptions/merchant-response.md",
-					Content: map[string]openapi.MediaType{
+					Content: map[string]core.MediaType{
 						"application/json": {
-							Schema: openapi.RefSchema("Merchant"),
-							Examples: map[string]*openapi.ExampleOrReference{
-								"live":    openapi.ExampleRef("MerchantLive"),
-								"sandbox": openapi.ExampleRef("MerchantSandbox"),
+							Schema: core.RefSchema("Merchant"),
+							Examples: map[string]*core.ExampleOrReference{
+								"live":    core.ExampleRef("MerchantLive"),
+								"sandbox": core.ExampleRef("MerchantSandbox"),
 							},
 						},
 					},
@@ -212,20 +212,20 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = api.GET(router, doc, openapi.Route("/auth/apikey/profile", openapi.Operation{
+	err = api.GET(router, doc, core.Route("/auth/apikey/profile", core.Operation{
 		OperationID: "getApiKeyProfile",
 		Summary:     "Get API key profile",
 		Description: "Dedicated sample endpoint that requires the configured apiKey credential.",
-		Security:    []openapi.SecurityRequirement{{"merchantApiKey": {}}},
-		Responses: map[string]openapi.ResponseOrReference{
+		Security:    []core.SecurityRequirement{{"merchantApiKey": {}}},
+		Responses: map[string]core.ResponseOrReference{
 			"200": {
-				Value: &openapi.Response{
+				Value: &core.Response{
 					Description: "Resolved API key session",
-					Content: map[string]openapi.MediaType{
+					Content: map[string]core.MediaType{
 						"application/json": {
-							Schema: openapi.RefSchema("AuthSession"),
-							Examples: map[string]*openapi.ExampleOrReference{
-								"default": openapi.ExampleRef("ApiKeySession"),
+							Schema: core.RefSchema("AuthSession"),
+							Examples: map[string]*core.ExampleOrReference{
+								"default": core.ExampleRef("ApiKeySession"),
 							},
 						},
 					},
@@ -245,20 +245,20 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = api.GET(router, doc, openapi.Route("/auth/oauth/session", openapi.Operation{
+	err = api.GET(router, doc, core.Route("/auth/oauth/session", core.Operation{
 		OperationID: "getOAuthSession",
 		Summary:     "Get OAuth session",
 		Description: "Dedicated sample endpoint that requires the configured oauth2 credential.",
-		Security:    []openapi.SecurityRequirement{{"merchantOAuth": {"merchant:read"}}},
-		Responses: map[string]openapi.ResponseOrReference{
+		Security:    []core.SecurityRequirement{{"merchantOAuth": {"merchant:read"}}},
+		Responses: map[string]core.ResponseOrReference{
 			"200": {
-				Value: &openapi.Response{
+				Value: &core.Response{
 					Description: "Resolved OAuth session",
-					Content: map[string]openapi.MediaType{
+					Content: map[string]core.MediaType{
 						"application/json": {
-							Schema: openapi.RefSchema("AuthSession"),
-							Examples: map[string]*openapi.ExampleOrReference{
-								"default": openapi.ExampleRef("OAuthSession"),
+							Schema: core.RefSchema("AuthSession"),
+							Examples: map[string]*core.ExampleOrReference{
+								"default": core.ExampleRef("OAuthSession"),
 							},
 						},
 					},
@@ -278,21 +278,21 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = api.POST(router, doc, openapi.Route("/merchants", openapi.Operation{
+	err = api.POST(router, doc, core.Route("/merchants", core.Operation{
 		OperationID: "createMerchant",
 		Summary:     "Create merchant",
 		Description: "Creates a merchant and demonstrates requestBody examples in OpenAPI 3.0.3.",
-		Security:    []openapi.SecurityRequirement{{"merchantOAuth": {"merchant:write"}}},
-		RequestBody: &openapi.RequestBodyOrReference{
-			Value: &openapi.RequestBody{
+		Security:    []core.SecurityRequirement{{"merchantOAuth": {"merchant:write"}}},
+		RequestBody: &core.RequestBodyOrReference{
+			Value: &core.RequestBody{
 				Description: "Create merchant payload.",
 				Required:    true,
-				Content: map[string]openapi.MediaType{
+				Content: map[string]core.MediaType{
 					"application/json": {
-						Schema: openapi.RefSchema("MerchantUpsertRequest"),
-						Examples: map[string]*openapi.ExampleOrReference{
-							"standard": openapi.ExampleRef("MerchantCreate"),
-							"minimal": openapi.InlineExample(&openapi.Example{
+						Schema: core.RefSchema("MerchantUpsertRequest"),
+						Examples: map[string]*core.ExampleOrReference{
+							"standard": core.ExampleRef("MerchantCreate"),
+							"minimal": core.InlineExample(&core.Example{
 								Summary: "Minimal request",
 								Value: map[string]any{
 									"name":   "Pilot Merchant",
@@ -304,13 +304,13 @@ func main() {
 				},
 			},
 		},
-		Responses: map[string]openapi.ResponseOrReference{
+		Responses: map[string]core.ResponseOrReference{
 			"201": {
-				Value: &openapi.Response{
+				Value: &core.Response{
 					Description: "Merchant created",
-					Content: map[string]openapi.MediaType{
+					Content: map[string]core.MediaType{
 						"application/json": {
-							Schema:  openapi.RefSchema("Merchant"),
+							Schema:  core.RefSchema("Merchant"),
 							Example: map[string]any{"id": "mrc_created_001", "name": "The Base Labs", "status": "active"},
 						},
 					},

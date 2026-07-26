@@ -12,20 +12,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module:
-          - .
-          - integrations/chi
-          - integrations/echo
-          - integrations/fiber
-          - integrations/gin
-          - integrations/iris
-          - examples/chi
-          - examples/fiber
-          - examples/gin
+        include:
+          - name: root
+            working-directory: .
+            go-version-file: go.mod
+          - name: examples-chi
+            working-directory: examples/chi
+            go-version-file: examples/chi/go.mod
+          - name: examples-fiber
+            working-directory: examples/fiber
+            go-version-file: examples/fiber/go.mod
+          - name: examples-gin
+            working-directory: examples/gin
+            go-version-file: examples/gin/go.mod
     defaults:
       run:
         shell: bash
-        working-directory: ${{ matrix.module }}
+        working-directory: ${{ matrix.working-directory }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -33,7 +36,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: ${{ matrix.module }}/go.mod
+          go-version-file: ${{ matrix.go-version-file }}
 
       - name: Tidy module
         run: go mod tidy

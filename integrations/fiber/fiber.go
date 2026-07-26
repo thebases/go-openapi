@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
-	openapi "github.com/thebases/go-openapi/openapi"
+	core "github.com/thebases/go-openapi/core"
 )
 
 func mountDocs(router fiber.Router, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
@@ -51,7 +51,7 @@ func mountDocs(router fiber.Router, docsPath, documentPath string, docsHandler, 
 	return nil
 }
 
-var routes = openapi.RouteRegistrar[fiber.Router, fiber.Handler]{
+var routes = core.RouteRegistrar[fiber.Router, fiber.Handler]{
 	Register: func(router fiber.Router, method, path string, handlers ...fiber.Handler) {
 		if len(handlers) == 0 {
 			return
@@ -68,35 +68,35 @@ var routes = openapi.RouteRegistrar[fiber.Router, fiber.Handler]{
 	MountDocs: mountDocs,
 }
 
-var docs = openapi.DocsRegistrar[fiber.Router]{
+var docs = core.DocsRegistrar[fiber.Router]{
 	Mount: mountDocs,
 }
 
-func Handle(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+func Handle(router fiber.Router, api *core.API, spec core.RouteSpec, handlers ...fiber.Handler) error {
 	return routes.Handle(router, api, spec, handlers...)
 }
 
-func GET(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+func GET(router fiber.Router, api *core.API, spec core.RouteSpec, handlers ...fiber.Handler) error {
 	return routes.GET(router, api, spec, handlers...)
 }
 
-func POST(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+func POST(router fiber.Router, api *core.API, spec core.RouteSpec, handlers ...fiber.Handler) error {
 	return routes.POST(router, api, spec, handlers...)
 }
 
-func PUT(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+func PUT(router fiber.Router, api *core.API, spec core.RouteSpec, handlers ...fiber.Handler) error {
 	return routes.PUT(router, api, spec, handlers...)
 }
 
-func PATCH(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+func PATCH(router fiber.Router, api *core.API, spec core.RouteSpec, handlers ...fiber.Handler) error {
 	return routes.PATCH(router, api, spec, handlers...)
 }
 
-func DELETE(router fiber.Router, api *openapi.API, spec openapi.RouteSpec, handlers ...fiber.Handler) error {
+func DELETE(router fiber.Router, api *core.API, spec core.RouteSpec, handlers ...fiber.Handler) error {
 	return routes.DELETE(router, api, spec, handlers...)
 }
 
-func MountDocs(router fiber.Router, api *openapi.API, docsPath, documentPath string, config openapi.DocsConfig) error {
+func MountDocs(router fiber.Router, api *core.API, docsPath, documentPath string, config core.DocsConfig) error {
 	return docs.MountDocs(router, api, docsPath, documentPath, config)
 }
 

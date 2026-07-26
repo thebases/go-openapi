@@ -1,4 +1,4 @@
-package openapi
+package core
 
 type Example struct {
 	Summary       string         `json:"summary,omitempty"`
