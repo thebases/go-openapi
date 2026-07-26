@@ -17,10 +17,11 @@ func TestRouteRegistrarRegistersOperationAndRoute(t *testing.T) {
 	api := New(WithTitle("Merchant API"), WithVersion("1.0.0"))
 	router := &stubRoute{}
 	registrar := RouteRegistrar[*stubRoute, string]{
-		Register: func(router *stubRoute, method, path string, handlers ...string) {
+		Register: func(router *stubRoute, method, path string, handlers ...string) error {
 			router.method = method
 			router.path = path
 			router.calls++
+			return nil
 		},
 	}
 
@@ -51,8 +52,9 @@ func TestRouteRegistrarAutoMountsDocsOnce(t *testing.T) {
 	router := &stubRoute{}
 	mountCalls := 0
 	registrar := RouteRegistrar[*stubRoute, string]{
-		Register: func(router *stubRoute, method, path string, handlers ...string) {
+		Register: func(router *stubRoute, method, path string, handlers ...string) error {
 			router.calls++
+			return nil
 		},
 		MountDocs: func(router *stubRoute, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
 			mountCalls++
@@ -81,8 +83,9 @@ func TestRouteRegistrarSkipsAutoMountWithoutDocStyle(t *testing.T) {
 	router := &stubRoute{}
 	mountCalls := 0
 	registrar := RouteRegistrar[*stubRoute, string]{
-		Register: func(router *stubRoute, method, path string, handlers ...string) {
+		Register: func(router *stubRoute, method, path string, handlers ...string) error {
 			router.calls++
+			return nil
 		},
 		MountDocs: func(router *stubRoute, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
 			mountCalls++

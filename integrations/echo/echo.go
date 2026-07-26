@@ -27,11 +27,12 @@ func mountDocs(router Router, docsPath, documentPath string, docsHandler, docume
 }
 
 var routes = core.RouteRegistrar[Router, echo.HandlerFunc]{
-	Register: func(router Router, method, path string, handlers ...echo.HandlerFunc) {
+	Register: func(router Router, method, path string, handlers ...echo.HandlerFunc) error {
 		if len(handlers) == 0 {
-			return
+			return nil
 		}
 		router.Add(method, path, handlers[0])
+		return nil
 	},
 	MountDocs: mountDocs,
 }

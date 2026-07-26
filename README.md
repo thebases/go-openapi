@@ -71,7 +71,7 @@ go get github.com/thebases/go-openapi
 
 Compatibility note: the primary import path moved from `github.com/thebases/go-openapi/openapi` to `github.com/thebases/go-openapi/core`. Integration imports stay under `github.com/thebases/go-openapi/integrations/...`, but they now resolve from the same root module release instead of nested module tags.
 
-For application code, import the facade package directly:
+For application code, import the core package directly:
 
 ```go
 import core "github.com/thebases/go-openapi/core"
@@ -91,11 +91,11 @@ The `ui` directory is the real import path. Its Go package name is `docs`.
 
 | Module | Purpose |
 | --- | --- |
-| `core` | Framework-neutral OpenAPI 3.0 document model, schema helpers, validation, and facade namespaces |
+| `core` | Framework-neutral OpenAPI 3.0 document model, schema helpers, validation, and namespace helpers |
 | `ui` | Embedded docs UI handlers for `swagger`, `base`, and `scalar` providers |
 | `integrations/chi` | Chi route registration helpers that register runtime routes and OpenAPI metadata together |
 | `integrations/echo` | Echo route registration helpers |
-| `integrations/fiber` | Fiber route registration helpers |
+| `integrations/fiber` | Fiber v2/v3 route registration helpers |
 | `integrations/gin` | Gin route registration helpers |
 | `integrations/iris` | Iris route registration helpers |
 
@@ -224,6 +224,8 @@ import (
 err := api.GET(app, apiDoc, core.Route("/merchants/:id", operation), getMerchant)
 ```
 
+`integrations/fiber` now accepts both Fiber v2 and Fiber v3 routers and handlers. Fiber keeps the same adapter import path, so your application continues importing `github.com/thebases/go-openapi/integrations/fiber` while using whichever Fiber major your service already depends on.
+
 Echo:
 
 ```go
@@ -257,9 +259,9 @@ import (
 err := api.GET(router, apiDoc, core.Route("/merchants/{id}", operation), getMerchant)
 ```
 
-### Facade namespaces
+### Namespace helpers
 
-The `openapi` facade also exposes convenience namespace values for single-import usage:
+The `core` package also exposes convenience namespace values for single-import usage:
 
 ```go
 err := core.Gin.GET(router, apiDoc, core.Route("/merchants/:id", operation), getMerchant)
@@ -269,7 +271,7 @@ err := core.Iris.GET(app, apiDoc, core.Route("/merchants/{id:int}", operation), 
 err := core.Chi.GET(router, apiDoc, core.Route("/merchants/{id}", operation), getMerchant)
 ```
 
-The facade uses exported namespace values such as `core.Docs`, `core.Gin`, `core.Fiber`, `core.Chi`, `core.Echo`, and `core.Iris`.
+These helpers use exported namespace values such as `core.Docs`, `core.Gin`, `core.Fiber`, `core.Chi`, `core.Echo`, and `core.Iris`.
 
 ## Examples
 
@@ -295,7 +297,7 @@ http://localhost:3000/openapi.json
 ## Release verification
 
 - Root module verification: `go list ./...` and `go test ./...`
-- Supported integration verification: run `go mod tidy` and `go test ./...` inside each `integrations/*` module
+- Supported integration verification: run `go test ./...` from the repo root so `integrations/*` are verified as ordinary packages in the root module
 - Example verification: run `go test ./...` inside each `examples/*` module
 - Consumer verification: validate a clean `go get` flow against the tagged root module and confirm package imports for `core`, `ui`, and `integrations/*` resolve from that single release
 
@@ -304,9 +306,8 @@ See [RELEASING.md](RELEASING.md) for the full release checklist, tag format, and
 Current workspace verification status:
 
 - `go list ./...` passes for the root module.
-- `go test ./...` passes for the root module packages `core` and `ui`.
-- `integrations/fiber` currently passes `go test ./...` in this workspace.
-- `integrations/chi`, `integrations/echo`, `integrations/gin`, and `integrations/iris` require dependency resolution in a network-enabled environment when `go.sum` entries are missing.
+- `go test ./...` passes for the root module, including `core`, `ui`, and `integrations/*`.
+- `go test ./...` also passes in `examples/chi`, `examples/fiber`, and `examples/gin`.
 
 ## Roadmap
 

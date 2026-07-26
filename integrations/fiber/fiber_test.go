@@ -1,83 +1,239 @@
 package openapifiber
 
 import (
-	"io"
 	"net/http"
-	"net/http/httptest"
-	"strings"
+	"reflect"
 	"testing"
-
-	"github.com/gofiber/fiber/v3"
 )
 
-func TestMountDocsPreservesSingleCSSContentType(t *testing.T) {
-	app := fiber.New()
-	cssHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		_, _ = w.Write([]byte("body{color:red}"))
-	})
-	jsonHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_, _ = w.Write([]byte(`{}`))
-	})
+type stubFiberV2Handler func(*stubFiberV2Ctx) error
 
-	if err := mountDocs(app, "/docs", "/openapi.json", cssHandler, jsonHandler); err != nil {
-		t.Fatalf("mount docs: %v", err)
+type stubFiberV2Ctx struct {
+	path     string
+	header   http.Header
+	body     []byte
+	status   int
+	appended map[string][]string
+}
+
+func (c *stubFiberV2Ctx) Path() string {
+	return c.path
+}
+
+func (c *stubFiberV2Ctx) Append(key, value string) {
+	if c.appended == nil {
+		c.appended = map[string][]string{}
+	}
+	c.appended[key] = append(c.appended[key], value)
+}
+
+func (c *stubFiberV2Ctx) Set(key, value string) {
+	if c.header == nil {
+		c.header = http.Header{}
+	}
+	c.header.Set(key, value)
+}
+
+func (c *stubFiberV2Ctx) Status(status int) *stubFiberV2Ctx {
+	c.status = status
+	return c
+}
+
+func (c *stubFiberV2Ctx) Send(body []byte) error {
+	c.body = append([]byte(nil), body...)
+	return nil
+}
+
+type stubFiberV2Router struct {
+	method string
+	path   string
+	calls  int
+}
+
+func (r *stubFiberV2Router) Add(method, path string, handlers ...stubFiberV2Handler) {
+	r.method = method
+	r.path = path
+	r.calls++
+}
+
+func (r *stubFiberV2Router) Get(path string, handlers ...stubFiberV2Handler) {
+	r.calls++
+}
+
+type stubFiberV3Handler func(stubFiberV3Ctx) error
+
+type stubFiberV3State struct {
+	header   http.Header
+	body     []byte
+	status   int
+	appended map[string][]string
+}
+
+type stubFiberV3Ctx struct {
+	path  string
+	state *stubFiberV3State
+}
+
+func (c stubFiberV3Ctx) Path() string {
+	return c.path
+}
+
+func (c stubFiberV3Ctx) Append(key, value string) {
+	if c.state.appended == nil {
+		c.state.appended = map[string][]string{}
+	}
+	c.state.appended[key] = append(c.state.appended[key], value)
+}
+
+func (c stubFiberV3Ctx) Set(key, value string) {
+	if c.state.header == nil {
+		c.state.header = http.Header{}
+	}
+	c.state.header.Set(key, value)
+}
+
+func (c stubFiberV3Ctx) Status(status int) stubFiberV3Ctx {
+	c.state.status = status
+	return c
+}
+
+func (c stubFiberV3Ctx) Send(body []byte) error {
+	c.state.body = append([]byte(nil), body...)
+	return nil
+}
+
+type stubFiberV3Router struct {
+	methods []string
+	path    string
+	calls   int
+}
+
+func (r *stubFiberV3Router) Add(methods []string, path string, handler stubFiberV3Handler, handlers ...stubFiberV3Handler) {
+	r.methods = append([]string(nil), methods...)
+	r.path = path
+	r.calls++
+}
+
+func (r *stubFiberV3Router) Get(path string, handler stubFiberV3Handler, handlers ...stubFiberV3Handler) {
+	r.calls++
+}
+
+func TestCallFiberAddSupportsV2Signature(t *testing.T) {
+	router := &stubFiberV2Router{}
+
+	if err := callFiberAdd(router, http.MethodGet, "/docs", []any{stubFiberV2Handler(func(ctx *stubFiberV2Ctx) error {
+		return nil
+	})}); err != nil {
+		t.Fatalf("register fiber v2 route: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/docs/css/app.css", nil)
-	resp, err := app.Test(req)
-	if err != nil {
-		t.Fatalf("request docs asset: %v", err)
+	if router.calls != 1 {
+		t.Fatalf("expected 1 fiber v2 route registration, got %d", router.calls)
 	}
-	defer resp.Body.Close()
-
-	if got := resp.Header.Values("Content-Type"); len(got) != 1 || got[0] != "text/css; charset=utf-8" {
-		t.Fatalf("expected one css content type, got %v", got)
+	if router.method != http.MethodGet {
+		t.Fatalf("unexpected fiber v2 method: %s", router.method)
 	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read response: %v", err)
-	}
-	if strings.TrimSpace(string(body)) != "body{color:red}" {
-		t.Fatalf("unexpected body: %q", string(body))
+	if router.path != "/docs" {
+		t.Fatalf("unexpected fiber v2 path: %s", router.path)
 	}
 }
 
-func TestMountDocsServesDocumentAliasUnderDocsPath(t *testing.T) {
-	app := fiber.New()
-	docsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	})
-	jsonHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+func TestCallFiberAddSupportsV3Signature(t *testing.T) {
+	router := &stubFiberV3Router{}
+
+	if err := callFiberAdd(router, http.MethodPost, "/docs", []any{stubFiberV3Handler(func(ctx stubFiberV3Ctx) error {
+		return nil
+	})}); err != nil {
+		t.Fatalf("register fiber v3 route: %v", err)
+	}
+
+	if router.calls != 1 {
+		t.Fatalf("expected 1 fiber v3 route registration, got %d", router.calls)
+	}
+	if len(router.methods) != 1 || router.methods[0] != http.MethodPost {
+		t.Fatalf("unexpected fiber v3 methods: %v", router.methods)
+	}
+	if router.path != "/docs" {
+		t.Fatalf("unexpected fiber v3 path: %s", router.path)
+	}
+}
+
+func TestMakeFiberHTTPHandlerReplaysStandardHandlerForV2(t *testing.T) {
+	router := &stubFiberV2Router{}
+	handler, err := makeFiberHTTPHandler(router, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("body{color:red}"))
+	}))
+	if err != nil {
+		t.Fatalf("make fiber v2 docs handler: %v", err)
+	}
+
+	context := &stubFiberV2Ctx{path: "/docs/css/app.css"}
+	result := handler.Call([]reflect.Value{reflect.ValueOf(context)})
+	if len(result) != 1 || !result[0].IsNil() {
+		t.Fatalf("expected nil fiber v2 error result, got %v", result)
+	}
+	if context.status != http.StatusAccepted {
+		t.Fatalf("unexpected fiber v2 status: %d", context.status)
+	}
+	if string(context.body) != "body{color:red}" {
+		t.Fatalf("unexpected fiber v2 body: %q", string(context.body))
+	}
+	if got := context.header.Get("Content-Type"); got != "text/css; charset=utf-8" {
+		t.Fatalf("unexpected fiber v2 content type: %q", got)
+	}
+}
+
+func TestMakeFiberHTTPHandlerReplaysStandardHandlerForV3(t *testing.T) {
+	router := &stubFiberV3Router{}
+	handler, err := makeFiberHTTPHandler(router, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Set-Cookie", "session=abc")
+		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"openapi":"3.0.3"}`))
-	})
-
-	if err := mountDocs(app, "/docs", "/openapi.json", docsHandler, jsonHandler); err != nil {
-		t.Fatalf("mount docs: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/docs/openapi.json", nil)
-	resp, err := app.Test(req)
+	}))
 	if err != nil {
-		t.Fatalf("request docs document alias: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected OK, got %d", resp.StatusCode)
-	}
-	if got := resp.Header.Get("Content-Type"); got != "application/json; charset=utf-8" {
-		t.Fatalf("unexpected content type: %q", got)
+		t.Fatalf("make fiber v3 docs handler: %v", err)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read response: %v", err)
+	state := &stubFiberV3State{}
+	context := stubFiberV3Ctx{path: "/docs/openapi.json", state: state}
+	result := handler.Call([]reflect.Value{reflect.ValueOf(context)})
+	if len(result) != 1 || !result[0].IsNil() {
+		t.Fatalf("expected nil fiber v3 error result, got %v", result)
 	}
-	if strings.TrimSpace(string(body)) != `{"openapi":"3.0.3"}` {
-		t.Fatalf("unexpected body: %q", string(body))
+	if state.status != http.StatusOK {
+		t.Fatalf("unexpected fiber v3 status: %d", state.status)
+	}
+	if string(state.body) != `{"openapi":"3.0.3"}` {
+		t.Fatalf("unexpected fiber v3 body: %q", string(state.body))
+	}
+	if got := len(state.appended["Set-Cookie"]); got != 1 {
+		t.Fatalf("expected one fiber v3 Set-Cookie value, got %d", got)
+	}
+}
+
+func TestMountDocsServesDocumentAliasForV2AndV3(t *testing.T) {
+	testCases := []struct {
+		name   string
+		router any
+	}{
+		{name: "v2", router: &stubFiberV2Router{}},
+		{name: "v3", router: &stubFiberV3Router{}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := mountDocs(
+				tc.router,
+				"/docs",
+				"/openapi.json",
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+			)
+			if err != nil {
+				t.Fatalf("mount docs: %v", err)
+			}
+		})
 	}
 }

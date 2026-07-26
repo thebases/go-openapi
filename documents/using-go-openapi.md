@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.0 |
-| Last updated | 2026-07-25 |
+| Version | 1.1 |
+| Last updated | 2026-07-26 |
 | Applies to | `github.com/thebases/go-openapi` current repository layout |
 | Audience | Go developers integrating OpenAPI generation and docs UI into an application |
 
@@ -99,16 +99,16 @@ You should now see an interactive documentation page at `/docs` and the generate
 
 ---
 
-## How to choose the right module
+## How to choose the right package
 
-Use the module that matches the task you are trying to complete.
+Use the package that matches the task you are trying to complete.
 
 | If you want to... | Use this import path |
 |---|---|
 | Build and export the OpenAPI document | `github.com/thebases/go-openapi/core` |
 | Serve the docs UI directly as `net/http` handlers | `github.com/thebases/go-openapi/ui` |
 | Register Gin routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/gin` |
-| Register Fiber routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/fiber` |
+| Register Fiber v2 or v3 routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/fiber` |
 | Register Chi routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/chi` |
 | Register Echo routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/echo` |
 | Register Iris routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/iris` |
@@ -164,6 +164,8 @@ err := openapifiber.GET(
     getMerchant,
 )
 ```
+
+`integrations/fiber` is version-tolerant: pass either a Fiber v2 router and handlers or a Fiber v3 router and handlers, and the adapter will bind against the router's runtime method shape.
 
 ### Chi
 
@@ -297,6 +299,8 @@ err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.js
 | Docs package: `ui` | The docs-serving package path; imported in Go code as `docs` |
 | Integration packages: `integrations/*` | Supported root-module packages for framework-specific route registration |
 | Example modules: `examples/*` | Local examples for learning and validation; not supported as installable release surfaces |
+
+The examples remain separate nested modules for local validation only. They are not part of the public API surface and should not be used as dependencies in application code.
 
 ---
 

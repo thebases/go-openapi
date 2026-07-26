@@ -360,7 +360,7 @@ func (fiberNamespace) Handle(router any, api *API, spec RouteSpec, handlers ...a
 	if err := mountDocsIfConfigured(router, api, mountFiberDocs); err != nil {
 		return err
 	}
-	return callVariadicMethod(router, "Add", []any{[]string{spec.Method}, spec.Path}, handlers)
+	return callFiberAddMethod(router, spec.Method, spec.Path, handlers)
 }
 func (fiberNamespace) GET(router any, api *API, spec RouteSpec, handlers ...any) error {
 	return Fiber.Handle(router, api, spec.WithMethod(http.MethodGet), handlers...)
@@ -514,13 +514,13 @@ func mountFiberDocs(router any, docsPath, documentPath string, docsHandler, docu
 	if err != nil {
 		return err
 	}
-	if err := callVariadicMethod(router, "Get", []any{documentPath}, []any{documentRouteHandler.Interface()}); err != nil {
+	if err := callFiberMethod(router, "Get", []any{documentPath}, []any{documentRouteHandler.Interface()}); err != nil {
 		return err
 	}
-	if err := callVariadicMethod(router, "Get", []any{docsPath}, []any{docsRouteHandler.Interface()}); err != nil {
+	if err := callFiberMethod(router, "Get", []any{docsPath}, []any{docsRouteHandler.Interface()}); err != nil {
 		return err
 	}
-	return callVariadicMethod(router, "Get", []any{docsPath + "/*"}, []any{docsRouteHandler.Interface()})
+	return callFiberMethod(router, "Get", []any{docsPath + "/*"}, []any{docsRouteHandler.Interface()})
 }
 
 func mountChiDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
@@ -596,6 +596,72 @@ func callVariadicMethod(target any, name string, fixedArgs []any, variadicArgs [
 		}
 		values = append(values, value)
 	}
+	method.Call(values)
+	return nil
+}
+
+func callFiberAddMethod(router any, method, path string, handlers []any) error {
+	add := reflect.ValueOf(router).MethodByName("Add")
+	if !add.IsValid() {
+		return fmt.Errorf("openapi facade: %T does not expose Add", router)
+	}
+
+	methodArg := add.Type().In(0)
+	switch {
+	case methodArg.Kind() == reflect.String:
+		return callFiberMethod(router, "Add", []any{method, path}, handlers)
+	case methodArg.Kind() == reflect.Slice && methodArg.Elem().Kind() == reflect.String:
+		return callFiberMethod(router, "Add", []any{[]string{method}, path}, handlers)
+	default:
+		return fmt.Errorf("openapi facade: unsupported Fiber Add signature on %T", router)
+	}
+}
+
+func callFiberMethod(target any, name string, fixedArgs []any, variadicArgs []any) error {
+	method := reflect.ValueOf(target).MethodByName(name)
+	if !method.IsValid() {
+		return fmt.Errorf("openapi facade: %T does not expose %s", target, name)
+	}
+	methodType := method.Type()
+	if !methodType.IsVariadic() {
+		return fmt.Errorf("openapi facade: %T.%s is not variadic", target, name)
+	}
+
+	requiredArgs := methodType.NumIn() - 1
+	useFixedHandler := len(fixedArgs)+1 == requiredArgs
+	if len(fixedArgs) != requiredArgs && !useFixedHandler {
+		return fmt.Errorf("openapi facade: %T.%s signature mismatch", target, name)
+	}
+	if useFixedHandler && len(variadicArgs) == 0 {
+		return fmt.Errorf("openapi facade: %T.%s requires at least one handler", target, name)
+	}
+
+	values := make([]reflect.Value, 0, len(fixedArgs)+len(variadicArgs))
+	for index, arg := range fixedArgs {
+		value, err := assignValue(arg, methodType.In(index))
+		if err != nil {
+			return err
+		}
+		values = append(values, value)
+	}
+	if useFixedHandler {
+		value, err := assignValue(variadicArgs[0], methodType.In(len(fixedArgs)))
+		if err != nil {
+			return err
+		}
+		values = append(values, value)
+		variadicArgs = variadicArgs[1:]
+	}
+
+	variadicType := methodType.In(methodType.NumIn() - 1).Elem()
+	for _, arg := range variadicArgs {
+		value, err := assignValue(arg, variadicType)
+		if err != nil {
+			return err
+		}
+		values = append(values, value)
+	}
+
 	method.Call(values)
 	return nil
 }
@@ -692,11 +758,18 @@ func makeFiberHTTPHandler(router any, handler http.Handler) (reflect.Value, erro
 		recorder := &memoryResponseWriter{header: http.Header{}}
 		handler.ServeHTTP(recorder, &http.Request{})
 		for key, values := range recorder.header {
-			for _, value := range values {
-				if !callMethodIfPresent(ctx, "Append", key, value) {
-					callMethodIfPresent(ctx, "Set", key, value)
-				}
+			if len(values) == 0 {
+				continue
 			}
+			// Keep multi-value cookies intact while normal headers stay single-value
+			// so the Fiber facade mirrors the docs handler's net/http response shape.
+			if strings.EqualFold(key, "Set-Cookie") {
+				for _, value := range values {
+					callMethodIfPresent(ctx, "Append", key, value)
+				}
+				continue
+			}
+			callMethodIfPresent(ctx, "Set", key, values[0])
 		}
 		statusResult, ok := callMethodValue(ctx, "Status", recorder.statusOrOK())
 		if !ok {

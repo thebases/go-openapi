@@ -23,8 +23,9 @@ func mountDocs(router iris.Party, docsPath, documentPath string, docsHandler, do
 }
 
 var routes = core.RouteRegistrar[iris.Party, iris.Handler]{
-	Register: func(router iris.Party, method, path string, handlers ...iris.Handler) {
+	Register: func(router iris.Party, method, path string, handlers ...iris.Handler) error {
 		router.Handle(method, path, handlers...)
+		return nil
 	},
 	MountDocs: mountDocs,
 }
