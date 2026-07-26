@@ -147,6 +147,12 @@ textarea {
   display: none;
 }
 
+@media (max-width: 750px) {
+  .mobile-only {
+    display: inline-flex;
+  }
+}
+
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -177,7 +183,20 @@ body[data-theme="dark"] .text-button:hover {
 .brand-logo {
   display: block;
   height: 24px;
-  width: auto;
+  width: 48px;
+  background-color: #000;
+  -webkit-mask-image: url("../img/logo.svg");
+  mask-image: url("../img/logo.svg");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: left center;
+  mask-position: left center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+body[data-theme="dark"] .brand-logo {
+  background-color: #fff;
 }
 
 .header-nav {
@@ -1166,9 +1185,12 @@ body[data-theme="dark"] .schema-name {
 }
 
 .lang-chip-icon-image {
+  display: block;
   width: 20px;
   height: 20px;
-  object-fit: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
 }
 
 .lang-chip-label {
@@ -1461,6 +1483,7 @@ body[data-theme="dark"] .schema-name {
 
   .brand-logo {
     height: 20px;
+    width: 40px;
   }
 
   .header-nav {
