@@ -206,6 +206,59 @@ err := openapiiris.GET(
 
 ---
 
+## Grouped / nested routes
+
+Registering a route through a group/sub-router (e.g. `router.Group("/device")`) needs two *different* path values: the OpenAPI operation key must be the **absolute** path (`/device/config/{id}`) so nested groups don't collide on the same relative key (`GET /`), while the framework still needs the path **relative** to the group (`/`, `/:id`) since it prepends its own prefix internally. Each integration exposes a `Root(router, api)` helper that returns a `core.Group` tracking this for you — call `.Group(prefix)` to nest, and `GET`/`POST`/`PUT`/`PATCH`/`DELETE` to register relative routes under it.
+
+### Fiber (grouped routes)
+
+```go
+device := openapifiber.Root(app, api).Group("/device").Group("/config")
+
+err := device.GET("/:id", operation, getDeviceConfig)
+// OpenAPI doc key: /device/config/{id}
+// Fiber route:     /:id, mounted under the /device/config group
+```
+
+### Gin (grouped routes)
+
+```go
+device := openapigin.Root(router, api).Group("/device").Group("/config")
+
+err := device.GET("/:id", operation, getDeviceConfig)
+```
+
+### Echo (grouped routes)
+
+```go
+device := openapiecho.Root(e, api).Group("/device").Group("/config")
+
+err := device.GET("/:id", operation, getDeviceConfig)
+```
+
+### Iris (grouped routes)
+
+```go
+device := openapiiris.Root(app, api).Group("/device").Group("/config")
+
+err := device.GET("/{id:int}", operation, getDeviceConfig)
+// OpenAPI doc key: /device/config/{id} (the :int macro is trimmed for the doc key)
+```
+
+### Chi (grouped routes)
+
+Chi has no queryable "current prefix" on a router — it resolves nesting by mounting a fresh sub-router at a pattern. `Root(...).Group(...)` does that mounting for you and still tracks the absolute prefix for the OpenAPI doc key.
+
+```go
+device := openapichi.Root(router, api).Group("/device").Group("/config")
+
+err := device.GET("/{id}", operation, getDeviceConfig)
+```
+
+`Root(router, api)` is purely additive — the root-level `GET`/`POST`/... functions shown above keep working unchanged for routes registered directly against the top-level router.
+
+---
+
 ## How to serve the docs UI manually
 
 Use this approach when you want full control over where the docs endpoints are mounted.

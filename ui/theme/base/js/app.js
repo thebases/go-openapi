@@ -905,15 +905,45 @@ async function updateSnippet(op) {
   }
 }
 
-async function sendRequest(op) {
+async function sendRequest(op, sendBtn) {
   const state = getOpState(op);
   const req = buildRequest(op, state);
   const resultEl = document.getElementById('tryit-result');
-  resultEl.innerHTML = `<div class="tryit-sending">Sending&hellip;</div>`;
 
   const fetchUrl = req.query.length ? `${req.url}?${new URLSearchParams(req.query).toString()}` : req.url;
   const fetchHeaders = Object.fromEntries(req.headers);
   if (req.bodyText) fetchHeaders['Content-Type'] = fetchHeaders['Content-Type'] || req.mimeType;
+
+  const requestHeaderLines = Object.entries(fetchHeaders).map(([k, v]) => `${k}: ${v}`).join('\n');
+  const requestGroup = `
+    <div class="result-section">
+      <h4 class="result-section-title">Request</h4>
+      <details class="param-group" open>
+        <summary><span class="param-group-head"><span class="caret"></span>URL</span></summary>
+        ${renderSnippetBlock(fetchUrl)}
+      </details>
+      <details class="param-group" open>
+        <summary><span class="param-group-head"><span class="caret"></span>Headers</span></summary>
+        ${renderSnippetBlock(requestHeaderLines || '(none)')}
+      </details>
+      ${req.bodyText ? `
+        <details class="param-group" open>
+          <summary><span class="param-group-head"><span class="caret"></span>Body</span></summary>
+          ${renderSnippetBlock(req.bodyText)}
+        </details>
+      ` : ''}
+    </div>
+  `;
+  resultEl.innerHTML = `
+    <div class="tryit-sending">
+      <div class="tryit-result-head">
+        <span class="badge status-badge" data-status="pending">${escapeHtml(req.method)}</span>
+        <span class="text-muted">Sending&hellip;</span>
+      </div>
+      ${requestGroup}
+    </div>
+  `;
+  if (sendBtn) sendBtn.disabled = true;
 
   const started = performance.now();
   try {
@@ -933,23 +963,33 @@ async function sendRequest(op) {
     const headerLines = [...res.headers.entries()].map(([k, v]) => `${k}: ${v}`).join('\n');
 
     resultEl.innerHTML = `
-      <div class="tryit-result-head">
-        <span class="badge status-badge" data-status="${statusClass(res.status)}">${res.status}${res.statusText ? ` ${escapeHtml(res.statusText)}` : ''}</span>
-        <span class="text-muted">${elapsed} ms</span>
+      ${requestGroup}
+      <div class="result-section">
+        <h4 class="result-section-title">Response</h4>
+        <div class="tryit-result-head">
+          <span class="badge status-badge" data-status="${statusClass(res.status)}">${res.status}${res.statusText ? ` ${escapeHtml(res.statusText)}` : ''}</span>
+          <span class="text-muted">${elapsed} ms</span>
+        </div>
+        <details class="param-group">
+          <summary><span class="param-group-head"><span class="caret"></span>Headers</span></summary>
+          ${renderSnippetBlock(headerLines || '(none)')}
+        </details>
+        ${renderSnippetBlock(bodyText)}
       </div>
-      <details class="param-group">
-        <summary><span class="param-group-head"><span class="caret"></span>Response headers</span></summary>
-        ${renderSnippetBlock(headerLines || '(none)')}
-      </details>
-      ${renderSnippetBlock(bodyText)}
     `;
   } catch (err) {
     resultEl.innerHTML = `
-      <div class="tryit-result-head">
-        <span class="schema-pill">Request failed</span>
+      ${requestGroup}
+      <div class="result-section">
+        <h4 class="result-section-title">Response</h4>
+        <div class="tryit-result-head">
+          <span class="schema-pill">Request failed</span>
+        </div>
+        <p class="param-desc">${escapeHtml(err.message)}. This is usually a CORS restriction or network error &mdash; check the browser console for details.</p>
       </div>
-      <p class="param-desc">${escapeHtml(err.message)}. This is usually a CORS restriction or network error &mdash; check the browser console for details.</p>
     `;
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
   }
 }
 
@@ -1403,8 +1443,9 @@ function wireEvents() {
       return;
     }
 
-    if (e.target.closest('[data-action="send"]')) {
-      sendRequest(op);
+    const sendBtn = e.target.closest('[data-action="send"]');
+    if (sendBtn) {
+      sendRequest(op, sendBtn);
       return;
     }
 

@@ -268,7 +268,13 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	err := api.GET(router, doc, core.Route("/merchants/{id}", core.Operation{
+	// api.Root(...).Group(prefix) is the recommended way to mount a resource:
+	// every route below is registered against a native chi sub-router mounted
+	// at the prefix, while core.Group resolves each relative path to its
+	// absolute OpenAPI doc path (e.g. "/{id}" -> "/merchants/{id}").
+	merchants := api.Root(router, doc).Group("/merchants")
+
+	err := merchants.GET("/{id}", core.Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
 		Description: "descriptions/merchant-operation.md",
@@ -308,7 +314,7 @@ func main() {
 				},
 			},
 		},
-	}), func(w http.ResponseWriter, r *http.Request) {
+	}, func(w http.ResponseWriter, r *http.Request) {
 		name := "The Base"
 		status := "active"
 		if r.URL.Query().Get("env") == "sandbox" {
@@ -527,7 +533,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = api.POST(router, doc, core.Route("/merchants", core.Operation{
+	// Same "merchants" Group used above for GET /merchants/{id}: "/" collapses
+	// onto the group's own prefix, so this resolves to POST /merchants.
+	err = merchants.POST("/", core.Operation{
 		OperationID: "createMerchant",
 		Summary:     "Create merchant",
 		Description: "Creates a merchant and demonstrates requestBody examples in OpenAPI 3.1.1.",
@@ -566,7 +574,7 @@ func main() {
 				},
 			},
 		},
-	}), func(w http.ResponseWriter, r *http.Request) {
+	}, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"id":     "mrc_created_001",

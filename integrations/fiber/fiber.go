@@ -82,6 +82,42 @@ func MountDocs(router any, api *core.API, docsPath, documentPath string, config 
 	return docs.MountDocs(router, api, docsPath, documentPath, config)
 }
 
+var groups = core.GroupRegistrar[any, any]{
+	RouteRegistrar: routes,
+	NewGroup: func(router any, relativePrefix string) any {
+		group, err := callFiberGroup(router, relativePrefix)
+		if err != nil {
+			panic(err)
+		}
+		return group
+	},
+}
+
+// callFiberGroup calls the native router's Group(prefix) method via reflection
+// (Fiber v2 and v3 both expose it) and returns the resulting sub-router.
+func callFiberGroup(router any, relativePrefix string) (any, error) {
+	method := reflect.ValueOf(router).MethodByName("Group")
+	if !method.IsValid() {
+		return nil, fmt.Errorf("openapi fiber: %T does not expose Group", router)
+	}
+	value, err := assignValue(relativePrefix, method.Type().In(0))
+	if err != nil {
+		return nil, err
+	}
+	results := method.Call([]reflect.Value{value})
+	if len(results) == 0 {
+		return nil, fmt.Errorf("openapi fiber: %T.Group returned no value", router)
+	}
+	return results[0].Interface(), nil
+}
+
+// Root wraps router as the root of a Group tree so nested Group(...) calls
+// track their own absolute prefix instead of reflecting it back out of
+// *fiber.Group.Prefix (which Fiber v3 doesn't expose the same way as v2).
+func Root(router any, api *core.API) core.Group[any, any] {
+	return core.NewGroup(router, api, groups, "")
+}
+
 func callFiberAdd(router any, method, routePath string, handlers []any) error {
 	fixedArgs, err := fiberAddArgs(router, method, routePath)
 	if err != nil {

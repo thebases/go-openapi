@@ -62,6 +62,20 @@ func MountDocs(router iris.Party, api *core.API, docsPath, documentPath string, 
 	return docs.MountDocs(router, api, docsPath, documentPath, config)
 }
 
+var groups = core.GroupRegistrar[iris.Party, iris.Handler]{
+	RouteRegistrar: routes,
+	NewGroup: func(router iris.Party, relativePrefix string) iris.Party {
+		return router.Party(relativePrefix)
+	},
+}
+
+// Root wraps router as the root of a Group tree so nested Group(...) calls
+// track their own absolute prefix for OpenAPI doc keys while still handing
+// iris's native Party the relative segment it expects.
+func Root(router iris.Party, api *core.API) core.Group[iris.Party, iris.Handler] {
+	return core.NewGroup(router, api, groups, "")
+}
+
 func docsDocumentAliasPath(docsPath, documentPath string) string {
 	trimmedDocsPath := strings.TrimRight(docsPath, "/")
 	if trimmedDocsPath == "" || trimmedDocsPath == "/" {

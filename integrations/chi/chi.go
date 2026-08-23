@@ -67,6 +67,26 @@ func MountDocs(router chi.Router, api *core.API, docsPath, documentPath string, 
 	return docs.MountDocs(router, api, docsPath, documentPath, config)
 }
 
+var groups = core.GroupRegistrar[chi.Router, http.HandlerFunc]{
+	RouteRegistrar: routes,
+	NewGroup: func(router chi.Router, relativePrefix string) chi.Router {
+		// Chi has no queryable "current prefix" on a router, unlike Fiber/Gin/Echo.
+		// It resolves nesting by mounting a fresh sub-router at a pattern instead,
+		// so build that sub-router here and let core.Group track the absolute
+		// prefix itself for OpenAPI doc keys.
+		sub := chi.NewRouter()
+		router.Mount(relativePrefix, sub)
+		return sub
+	},
+}
+
+// Root wraps router as the root of a Group tree so nested Group(...) calls
+// track their own absolute prefix for OpenAPI doc keys while mounting a fresh
+// chi.Router at each relative prefix for native routing.
+func Root(router chi.Router, api *core.API) core.Group[chi.Router, http.HandlerFunc] {
+	return core.NewGroup(router, api, groups, "")
+}
+
 func docsDocumentAliasPath(docsPath, documentPath string) string {
 	trimmedDocsPath := strings.TrimRight(docsPath, "/")
 	if trimmedDocsPath == "" || trimmedDocsPath == "/" {

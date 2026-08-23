@@ -257,7 +257,13 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	err := api.GET(router, docs, core.Route("/merchants/:id", core.Operation{
+	// api.Root(...).Group(prefix) is the recommended way to mount a resource:
+	// every route below is registered against the native Gin group, while
+	// core.Group resolves each relative path to its absolute OpenAPI doc path
+	// (e.g. "/:id" -> "/merchants/:id").
+	merchants := api.Root(router, docs).Group("/merchants")
+
+	err := merchants.GET("/:id", core.Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
 		Description: "descriptions/merchant-operation.md",
@@ -297,7 +303,7 @@ func main() {
 				},
 			},
 		},
-	}), func(c *gin.Context) {
+	}, func(c *gin.Context) {
 		name := "The Base"
 		status := "active"
 		if c.Query("env") == "sandbox" {
@@ -508,7 +514,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = api.POST(router, docs, core.Route("/merchants", core.Operation{
+	// Same "merchants" Group used above for GET /merchants/:id: "/" collapses
+	// onto the group's own prefix, so this resolves to POST /merchants.
+	err = merchants.POST("/", core.Operation{
 		OperationID: "createMerchant",
 		Summary:     "Create merchant",
 		Description: "Creates a merchant and demonstrates requestBody examples in OpenAPI 3.1.1.",
@@ -547,7 +555,7 @@ func main() {
 				},
 			},
 		},
-	}), func(c *gin.Context) {
+	}, func(c *gin.Context) {
 		c.JSON(201, gin.H{
 			"id":     "mrc_created_001",
 			"name":   "The Base Labs",

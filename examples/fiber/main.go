@@ -259,7 +259,13 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	err := api.GET(app, doc, core.Route("/merchants/:id", core.Operation{
+	// api.Root(...).Group(prefix) is the recommended way to mount a resource:
+	// every route below is registered against the native Fiber group, while
+	// core.Group resolves each relative path to its absolute OpenAPI doc path
+	// (e.g. "/:id" -> "/merchants/:id").
+	merchants := api.Root(app, doc).Group("/merchants")
+
+	err := merchants.GET("/:id", core.Operation{
 		OperationID: "getMerchant",
 		Summary:     "Get merchant",
 		Description: "descriptions/merchant-operation.md",
@@ -299,7 +305,7 @@ func main() {
 				},
 			},
 		},
-	}), func(c fiber.Ctx) error {
+	}, func(c fiber.Ctx) error {
 		name := "The Base"
 		status := "active"
 		if c.Query("env") == "sandbox" {
@@ -506,7 +512,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = api.POST(app, doc, core.Route("/merchants", core.Operation{
+	// Same "merchants" Group used above for GET /merchants/:id: "/" collapses
+	// onto the group's own prefix, so this resolves to POST /merchants.
+	err = merchants.POST("/", core.Operation{
 		OperationID: "createMerchant",
 		Summary:     "Create merchant",
 		Description: "Creates a merchant and demonstrates requestBody examples in OpenAPI 3.1.1.",
@@ -545,7 +553,7 @@ func main() {
 				},
 			},
 		},
-	}), func(c fiber.Ctx) error {
+	}, func(c fiber.Ctx) error {
 		return c.Status(201).JSON(fiber.Map{
 			"id":     "mrc_created_001",
 			"name":   "The Base Labs",

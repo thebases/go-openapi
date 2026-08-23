@@ -68,6 +68,35 @@ func MountDocs(router gin.IRoutes, api *core.API, docsPath, documentPath string,
 	return docs.MountDocs(router, api, docsPath, documentPath, config)
 }
 
+// GroupRouter is satisfied by both *gin.Engine and *gin.RouterGroup, unlike
+// gin.IRoutes which does not expose Group.
+type GroupRouter interface {
+	gin.IRoutes
+	Group(relativePath string, handlers ...gin.HandlerFunc) *gin.RouterGroup
+}
+
+var groups = core.GroupRegistrar[GroupRouter, gin.HandlerFunc]{
+	RouteRegistrar: core.RouteRegistrar[GroupRouter, gin.HandlerFunc]{
+		Register: func(router GroupRouter, method, path string, handlers ...gin.HandlerFunc) error {
+			router.Handle(method, path, handlers...)
+			return nil
+		},
+		MountDocs: func(router GroupRouter, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
+			return mountDocs(router, docsPath, documentPath, docsHandler, documentHandler)
+		},
+	},
+	NewGroup: func(router GroupRouter, relativePrefix string) GroupRouter {
+		return router.Group(relativePrefix)
+	},
+}
+
+// Root wraps router as the root of a Group tree so nested Group(...) calls
+// track their own absolute prefix for OpenAPI doc keys while still handing
+// gin's native Group the relative path it expects.
+func Root(router GroupRouter, api *core.API) core.Group[GroupRouter, gin.HandlerFunc] {
+	return core.NewGroup(router, api, groups, "")
+}
+
 func docsDocumentAliasPath(docsPath, documentPath string) string {
 	trimmedDocsPath := strings.TrimRight(docsPath, "/")
 	if trimmedDocsPath == "" || trimmedDocsPath == "/" {

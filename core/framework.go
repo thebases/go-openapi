@@ -72,6 +72,94 @@ func (registrar RouteRegistrar[Router, Handler]) DELETE(router Router, api *API,
 	return registrar.Handle(router, api, spec.WithMethod(http.MethodDelete), handlers...)
 }
 
+// GroupRegistrar extends RouteRegistrar with a hook for creating a native
+// sub-router/group, so nested route registration can track its own absolute
+// prefix instead of reflecting it back out of framework-internal state.
+type GroupRegistrar[Router any, Handler any] struct {
+	RouteRegistrar[Router, Handler]
+	NewGroup func(router Router, relativePrefix string) Router
+}
+
+// Group wraps a native router/group value together with the absolute path
+// prefix accumulated by nested Group(...) calls. registerOperation always
+// runs CanonicalPath on the resolved doc path, so every framework's native
+// param syntax (":name", "{name:type}") normalizes to "{name}" without a
+// framework-specific hook here.
+type Group[Router any, Handler any] struct {
+	router    Router
+	api       *API
+	prefix    string
+	registrar GroupRegistrar[Router, Handler]
+}
+
+// NewGroup wraps router as the root of a Group tree rooted at prefix (use ""
+// for the framework's actual root router).
+func NewGroup[Router any, Handler any](router Router, api *API, registrar GroupRegistrar[Router, Handler], prefix string) Group[Router, Handler] {
+	return Group[Router, Handler]{router: router, api: api, prefix: prefix, registrar: registrar}
+}
+
+func (g Group[Router, Handler]) Group(relativePrefix string) Group[Router, Handler] {
+	child := g.registrar.NewGroup(g.router, relativePrefix)
+	return Group[Router, Handler]{
+		router:    child,
+		api:       g.api,
+		prefix:    joinPath(g.prefix, relativePrefix),
+		registrar: g.registrar,
+	}
+}
+
+func (g Group[Router, Handler]) Handle(method, relativePath string, op Operation, handlers ...Handler) error {
+	if g.registrar.Register == nil {
+		return errors.New("openapi: route registrar is not configured")
+	}
+	absPath := joinPath(g.prefix, relativePath)
+	if err := registerOperation(g.api, method, absPath, op); err != nil {
+		return err
+	}
+	if err := mountDocsIfConfigured(g.router, g.api, g.registrar.MountDocs); err != nil {
+		return err
+	}
+	return g.registrar.Register(g.router, method, relativePath, handlers...)
+}
+
+func (g Group[Router, Handler]) GET(relativePath string, op Operation, handlers ...Handler) error {
+	return g.Handle(http.MethodGet, relativePath, op, handlers...)
+}
+
+func (g Group[Router, Handler]) POST(relativePath string, op Operation, handlers ...Handler) error {
+	return g.Handle(http.MethodPost, relativePath, op, handlers...)
+}
+
+func (g Group[Router, Handler]) PUT(relativePath string, op Operation, handlers ...Handler) error {
+	return g.Handle(http.MethodPut, relativePath, op, handlers...)
+}
+
+func (g Group[Router, Handler]) PATCH(relativePath string, op Operation, handlers ...Handler) error {
+	return g.Handle(http.MethodPatch, relativePath, op, handlers...)
+}
+
+func (g Group[Router, Handler]) DELETE(relativePath string, op Operation, handlers ...Handler) error {
+	return g.Handle(http.MethodDelete, relativePath, op, handlers...)
+}
+
+// joinPath resolves relativePath against prefix into a single absolute path,
+// deduping the slash at the join point. relativePath "/" collapses onto
+// prefix itself (a group's own root route), matching how Fiber/Gin/Echo/Iris
+// treat an empty sub-path under a mounted group.
+func joinPath(prefix, relativePath string) string {
+	if !strings.HasPrefix(relativePath, "/") {
+		relativePath = "/" + relativePath
+	}
+	trimmedPrefix := strings.TrimRight(prefix, "/")
+	if trimmedPrefix == "" {
+		return relativePath
+	}
+	if relativePath == "/" {
+		return trimmedPrefix
+	}
+	return trimmedPrefix + relativePath
+}
+
 // DocsRegistrar centralizes docs handler preparation so future framework adapters
 // only need to translate net/http handlers into their native handler shape.
 type DocsRegistrar[Router any] struct {
