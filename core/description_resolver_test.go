@@ -76,7 +76,7 @@ func TestAPIDescriptionMarkdownFilesResolveAcrossDocument(t *testing.T) {
 		},
 	}
 	api.doc.Components.SecuritySchemes = map[string]*SecuritySchemeOrReference{
-		"bearerAuth": &SecuritySchemeOrReference{
+		"bearerAuth": {
 			Value: &SecurityScheme{
 				Type:        "http",
 				Scheme:      "bearer",

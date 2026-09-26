@@ -1,7 +1,7 @@
 :root {
   color-scheme: light;
   --header-h: 54px;
-  --sidebar-w: 272px;
+  --sidebar-w: 270px;
   --tryit-w: 502px;
   --page-bg: #ffffff;
   --panel-bg: #f4f5f7;
@@ -532,10 +532,11 @@ body[data-theme="dark"] .prose td {
   display: flex;
   flex-direction: column;
   width: var(--sidebar-w);
-  border-right: 1px solid var(--line);
-  background: #fff;
+  min-width: var(--sidebar-w);
   height: 100%;
   min-height: 0;
+  border-right: 1px solid var(--line);
+  background: #fff;
 }
 
 .sidebar-shell[aria-hidden="true"] {
@@ -763,10 +764,20 @@ body[data-theme="dark"] .prose td {
   margin-top: 0;
 }
 
-.prose h1 { font-size: 22px; }
-.prose h2 { font-size: 19px; }
-.prose h3 { font-size: 17px; }
-.prose h4, .prose h5, .prose h6 { font-size: 15px; }
+.prose h1 {
+  font-size: 22px;
+}
+.prose h2 {
+  font-size: 19px;
+}
+.prose h3 {
+  font-size: 17px;
+}
+.prose h4,
+.prose h5,
+.prose h6 {
+  font-size: 15px;
+}
 
 .prose ul,
 .prose ol {
@@ -864,6 +875,35 @@ body[data-theme="dark"] .prose td {
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow-x: auto;
+}
+
+/* Shown in place of a diagram that failed to load or render (see showMermaidProblem). */
+.prose .mermaid-error {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  background: var(--panel-bg);
+  border: 1px solid var(--line);
+  border-left: 4px solid #ff3b30;
+  border-radius: 8px;
+}
+
+.prose .mermaid-error-title {
+  margin: 0 0 8px;
+  color: #ff3b30;
+  font-weight: 700;
+}
+
+.prose .mermaid-error-detail {
+  margin: 0 0 12px;
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.prose .mermaid-error pre.code-block {
+  margin-bottom: 0;
 }
 
 .breadcrumb {
@@ -1569,7 +1609,6 @@ body[data-theme="dark"] .prose td {
   color: var(--text-soft);
   font-size: 14px;
 }
-
 
 .lang-curl {
   background: #edf1f5;

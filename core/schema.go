@@ -43,9 +43,9 @@ type Schema struct {
 	ReadOnly    bool   `json:"readOnly,omitempty"`
 	WriteOnly   bool   `json:"writeOnly,omitempty"`
 	// Example is deprecated by OAS 3.1 in favor of Examples; kept for compatibility.
-	Example    any    `json:"example,omitempty"`
-	Examples   []any  `json:"examples,omitempty"`
-	Deprecated bool   `json:"deprecated,omitempty"`
+	Example    any   `json:"example,omitempty"`
+	Examples   []any `json:"examples,omitempty"`
+	Deprecated bool  `json:"deprecated,omitempty"`
 
 	Discriminator *Discriminator         `json:"discriminator,omitempty"`
 	XML           *XML                   `json:"xml,omitempty"`

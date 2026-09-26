@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -7,6 +7,7 @@
   <link rel="icon" type="image/png" href="{{.AssetBasePath}}/img/favicon-32x32.png" sizes="32x32" />
   <link rel="icon" type="image/png" href="{{.AssetBasePath}}/img/favicon-16x16.png" sizes="16x16" />
   <link rel="stylesheet" href="{{.AssetBasePath}}/css/app.css" />
+  {{if .CustomCSS}}<style id="docs-custom-css">{{.CustomCSS}}</style>{{end}}
   <script>
     window.__DOCS_DOCUMENT_URL__ = "{{.DocumentURL}}";
     window.__ASSET_BASE_PATH__ = "{{.AssetBasePath}}";
@@ -81,7 +82,6 @@
     </main>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js" defer></script>
   <script src="{{.AssetBasePath}}/js/openapi.js" defer></script>
   <script src="{{.AssetBasePath}}/js/snippet.js" defer></script>
   <script src="{{.AssetBasePath}}/js/app.js" defer></script>

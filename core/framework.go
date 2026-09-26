@@ -199,6 +199,9 @@ func prepareDocsMount(api *API, docsPath, documentPath string, config DocsConfig
 	if config.Title == "" {
 		config.Title = api.docsTitle()
 	}
+	if config.CustomCSS == "" {
+		config.CustomCSS = api.docsCustomCSS()
+	}
 	config.DocsPath = docsPath
 	config.DocumentURL = documentPath
 

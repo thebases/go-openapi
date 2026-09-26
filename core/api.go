@@ -25,6 +25,7 @@ type API struct {
 	doc          Document
 	version      SpecVersion
 	docsProvider DocsProvider
+	docsCSS      string
 	docsEnabled  bool
 	docsMounted  map[string]bool
 }
@@ -111,6 +112,16 @@ func WithDocStyle(provider DocsProvider) Option {
 	return func(api *API) {
 		api.docsProvider = provider
 		api.docsEnabled = true
+	}
+}
+
+// WithCustomCSS sets extra CSS injected into the docs UI after the theme's own
+// styles, for every docs mount of this API. It does not enable docs mounting on
+// its own; combine it with WithDocStyle or a manual MountDocs. A non-empty
+// DocsConfig.CustomCSS on a specific mount replaces it for that mount.
+func WithCustomCSS(css string) Option {
+	return func(api *API) {
+		api.docsCSS = css
 	}
 }
 
@@ -244,6 +255,12 @@ func (api *API) docsTitle() string {
 	api.mu.RLock()
 	defer api.mu.RUnlock()
 	return api.doc.Info.Title
+}
+
+func (api *API) docsCustomCSS() string {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	return api.docsCSS
 }
 
 func (api *API) shouldAutoMountDocs() bool {

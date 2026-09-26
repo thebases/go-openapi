@@ -14,4 +14,8 @@ type Config struct {
 	DocsPath    string
 	DocumentURL string
 	CDNBaseURL  string
+	// CustomCSS is raw CSS appended after the selected theme's own styles on
+	// the docs page, so its rules override the theme at equal specificity.
+	// Empty means no extra <style> block is rendered.
+	CustomCSS string
 }

@@ -144,6 +144,35 @@ func TestDocsHandlerServesNestedBaseAssets(t *testing.T) {
 	}
 }
 
+// The Base theme lazy-loads mermaid from its own asset path so diagrams work
+// offline and under a same-origin CSP; guard against the vendored bundle being
+// dropped or the page falling back to a CDN script tag.
+func TestDocsHandlerServesVendoredMermaid(t *testing.T) {
+	handler, err := DocsHandler(Config{Provider: Base})
+	if err != nil {
+		t.Fatalf("create docs handler: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs/js/vendor/mermaid.min.js", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected OK for vendored mermaid, got %d", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/javascript; charset=utf-8" {
+		t.Fatalf("expected javascript content type, got %q", got)
+	}
+	if !strings.Contains(recorder.Body.String(), `globalThis["mermaid"]`) {
+		t.Fatal("expected mermaid bundle to register the mermaid global")
+	}
+
+	page := httptest.NewRecorder()
+	handler.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/docs", nil))
+	if strings.Contains(page.Body.String(), "cdn.jsdelivr.net/npm/mermaid") {
+		t.Fatal("expected base page not to load mermaid from a CDN")
+	}
+}
+
 func TestDocsHandlerRejectsNestedAssetTraversal(t *testing.T) {
 	handler, err := DocsHandler(Config{Provider: Swagger})
 	if err != nil {
@@ -155,5 +184,80 @@ func TestDocsHandlerRejectsNestedAssetTraversal(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for traversal path, got %d", recorder.Code)
+	}
+}
+
+// CustomCSS must land in its own <style> block after the theme's stylesheet on
+// every provider, so developer rules override the theme at equal specificity.
+func TestDocsHandlerInjectsCustomCSSAfterThemeStyles(t *testing.T) {
+	const css = `.app-header { background: rebeccapurple; }`
+	themeMarkers := map[Provider]string{
+		Swagger: `<div id="swagger-ui">`,
+		Base:    `/css/app.css`,
+		Scalar:  `<div id="app">`,
+	}
+
+	for provider, marker := range themeMarkers {
+		t.Run(string(provider), func(t *testing.T) {
+			handler, err := DocsHandler(Config{Provider: provider, CustomCSS: css})
+			if err != nil {
+				t.Fatalf("create docs handler: %v", err)
+			}
+
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs", nil))
+			body := recorder.Body.String()
+
+			block := `<style id="docs-custom-css">` + css + `</style>`
+			at := strings.Index(body, block)
+			if at < 0 {
+				t.Fatalf("expected custom css block, got %q", body)
+			}
+			if provider == Base && at < strings.Index(body, marker) {
+				t.Fatal("expected custom css after the base theme stylesheet")
+			}
+			if provider != Base && at > strings.Index(body, marker) {
+				t.Fatal("expected custom css inside <head>, before the UI container")
+			}
+			// Only <head> matters: Swagger inlines a JS bundle containing "<style" strings.
+			head := body[:strings.Index(body, "</head>")]
+			if strings.LastIndex(head, "<style") > at {
+				t.Fatal("expected custom css to be the last <style> block in <head>")
+			}
+		})
+	}
+}
+
+func TestDocsHandlerOmitsCustomCSSBlockWhenEmpty(t *testing.T) {
+	for _, provider := range []Provider{Swagger, Base, Scalar} {
+		handler, err := DocsHandler(Config{Provider: provider, CustomCSS: "   "})
+		if err != nil {
+			t.Fatalf("create docs handler: %v", err)
+		}
+
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs", nil))
+		if strings.Contains(recorder.Body.String(), "docs-custom-css") {
+			t.Fatalf("%s: expected no custom css block for blank css", provider)
+		}
+	}
+}
+
+// A literal </style> in CustomCSS must not close the element and inject HTML.
+func TestDocsHandlerNeutralizesStyleCloseTagInCustomCSS(t *testing.T) {
+	handler, err := DocsHandler(Config{Provider: Base, CustomCSS: `a{}</STYLE><script>alert(1)</script>`})
+	if err != nil {
+		t.Fatalf("create docs handler: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs", nil))
+	body := recorder.Body.String()
+
+	if strings.Contains(body, `</STYLE><script>`) {
+		t.Fatalf("expected closing style tag to be escaped, got %q", body)
+	}
+	if !strings.Contains(body, `a{}<\/STYLE><script>alert(1)</script></style>`) {
+		t.Fatalf("expected escaped css kept inside the style block, got %q", body)
 	}
 }

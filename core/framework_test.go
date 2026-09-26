@@ -163,6 +163,34 @@ func TestPrepareDocsMountAllowsPerMountProviderOverride(t *testing.T) {
 	}
 }
 
+func TestPrepareDocsMountCustomCSSInheritanceAndOverride(t *testing.T) {
+	api := New(WithDocStyle(DocsBase), WithCustomCSS(".api-level{}"))
+	cases := []struct {
+		name   string
+		config DocsConfig
+		want   string
+	}{
+		{name: "inherits API css", config: DocsConfig{}, want: ".api-level{}"},
+		{name: "per-mount override", config: DocsConfig{CustomCSS: ".mount-level{}"}, want: ".mount-level{}"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, docsHandler, _, err := prepareDocsMount(api, "/docs", "/openapi.json", tc.config)
+			if err != nil {
+				t.Fatalf("prepare docs mount: %v", err)
+			}
+
+			recorder := httptest.NewRecorder()
+			docsHandler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs/", nil))
+			body := recorder.Body.String()
+			if !strings.Contains(body, `<style id="docs-custom-css">`+tc.want+`</style>`) {
+				t.Fatalf("expected custom css %q, got %q", tc.want, body)
+			}
+		})
+	}
+}
+
 func TestPrepareDocsMountServesDocsAssetsUnderMountPath(t *testing.T) {
 	api := New(WithTitle("Merchant API"), WithVersion("1.0.0"), WithDocStyle(DocsSwagger))
 	_, _, docsHandler, _, err := prepareDocsMount(api, "/docs", "/openapi.json", DocsConfig{})

@@ -329,6 +329,37 @@ err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.js
 })
 ```
 
+## How to customize the docs UI styling
+
+Pass raw CSS with `core.WithCustomCSS(...)` (all mounts) or `DocsConfig.CustomCSS` (one mount). It works with every provider — Swagger, Base, and Scalar.
+
+```go
+api := core.New(
+    core.WithTitle("Merchant API"),
+    core.WithDocStyle(core.DocsBase),
+    core.WithCustomCSS(`
+        :root { --accent: #7c3aed; }
+        .app-header { border-bottom: 2px solid var(--accent); }
+    `),
+)
+```
+
+To keep the CSS in its own file, embed it:
+
+```go
+//go:embed docs.css
+var docsCSS string
+
+api := core.New(core.WithDocStyle(core.DocsSwagger), core.WithCustomCSS(docsCSS))
+```
+
+**What you will see:** the docs page gets an extra `<style id="docs-custom-css">` block placed after the theme's own styles, so your rules win over the theme's rules at equal specificity. Blank CSS adds nothing to the page.
+
+Notes:
+
+- Selectors depend on the provider's markup: Swagger uses `.swagger-ui ...`, Base uses its own classes and CSS variables (see `ui/theme/base/css/app.css`), Scalar uses its `--scalar-*` variables.
+- The CSS is developer configuration and is inserted as-is. The only change made is that a literal `</style` is escaped so it cannot end the style block early. Do not build it from end-user input.
+
 ---
 
 ## Settings and configuration
@@ -336,7 +367,7 @@ err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.js
 | Setting | Description | Default | When to change |
 |---|---|---|---|
 | `WithTitle(...)` | Sets the API title shown in the generated document and UI | `API` | Change it for every real application |
-| `WithVersion(...)` | Sets the API version string | `0.0.1` | Change it to your release or schema version |
+| `WithVersion(...)` | Sets the API version string | `0.0.0` | Change it to your release or schema version |
 | `WithDescription(...)` | Adds a description to the API metadata | empty | Change it when you want richer docs metadata |
 | `WithServer(url, description)` | Adds a server entry to the OpenAPI document | none | Change it when you want the document to advertise one or more environments |
 | `WithOpenAPIVersion(...)` | Selects the generated spec version: `0`=3.0.4, `1`=3.1.1, `2`=3.2.0 | `2` (3.2.0) | Change it when a consumer or tool requires an older OpenAPI version |
@@ -344,6 +375,8 @@ err := openapigin.MountDocs(router, api, "/internal/docs", "/internal/openapi.js
 | `DocsConfig.Provider` | Chooses the docs UI for a manual mount | inherited from API docs style or package default | Change it when a specific mount should use Swagger, Base, or Scalar |
 | `DocsConfig.Title` | Overrides the page title for a manual docs mount | inherited from API title when available | Change it when a docs page needs a different label |
 | `DocsConfig.DocumentURL` | Tells the docs UI where to fetch the OpenAPI JSON | `/openapi.json` in most standard mounts | Change it when your JSON is mounted elsewhere |
+| `WithCustomCSS(...)` | Adds your own CSS to the docs UI for every docs mount of this API | none | Change it to brand or restyle the docs page (does not enable docs mounting by itself) |
+| `DocsConfig.CustomCSS` | Adds your own CSS to one docs mount; replaces `WithCustomCSS` for that mount when non-empty | inherited from `WithCustomCSS` | Change it when one mount needs different styling |
 
 ---
 

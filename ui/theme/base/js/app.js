@@ -149,9 +149,30 @@ function splitTableRow(line) {
   return t.split('|').map(c => c.trim());
 }
 
+// Opening code fence, CommonMark-style: 3+ backticks or tildes, then an info
+// string whose first word is the language. Anything after it (e.g. the
+// `{config}` in "```mermaid {config}" or "```mermaid{theme=dark}") is ignored.
+// Backtick info strings may not contain backticks, so "```js```" stays inline.
+function parseFenceOpen(line) {
+  const m = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
+  if (!m) return null;
+  const info = m[2].trim();
+  if (m[1][0] === '`' && info.includes('`')) return null;
+  const lang = (info.match(/^[^\s{]+/) || [''])[0].toLowerCase();
+  return { char: m[1][0], size: m[1].length, lang };
+}
+
+// A fence closes only on the same character repeated at least as many times
+// as the opener, with nothing but whitespace around it — so a ``` line inside
+// a ~~~~ block (or a longer ```` block) is kept as code.
+function isFenceClose(line, fence) {
+  const m = line.match(/^\s*(`{3,}|~{3,})\s*$/);
+  return Boolean(m) && m[1][0] === fence.char && m[1].length >= fence.size;
+}
+
 // Small GFM-flavored markdown renderer: headers, lists, tables, blockquotes,
 // fenced code blocks (```mermaid fences become <pre class="mermaid"> for the
-// CDN-loaded mermaid.js runtime to pick up), rules, and inline formatting.
+// vendored, lazy-loaded mermaid.js runtime to pick up), rules, and inline formatting.
 function mdLite(src) {
   if (!src) return '';
   const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
@@ -168,13 +189,13 @@ function mdLite(src) {
   while (i < lines.length) {
     const line = lines[i];
 
-    const fence = line.match(/^\s*```\s*([\w-]*)\s*$/);
+    const fence = parseFenceOpen(line);
     if (fence) {
       flushParagraph();
-      const lang = fence[1] || '';
+      const lang = fence.lang;
       const codeLines = [];
       i++;
-      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
+      while (i < lines.length && !isFenceClose(lines[i], fence)) {
         codeLines.push(lines[i]);
         i++;
       }
@@ -272,7 +293,15 @@ function mdLite(src) {
   return out.join('');
 }
 
-// ---------- mermaid (CDN) ----------
+// ---------- mermaid (vendored, lazy-loaded) ----------
+// The runtime (~3.5 MB) is embedded with the theme and served from the docs
+// asset path, so diagrams work offline and under a same-origin CSP. It is
+// only fetched the first time a rendered page actually contains a diagram.
+
+const MERMAID_SRC = 'js/vendor/mermaid.min.js';
+/** mermaidLoad: in-flight/settled Promise<mermaid|null>; reset on failure so a later render can retry. */
+let mermaidLoad = null;
+let mermaidRenderSeq = 0;
 
 function mermaidTheme() {
   return document.body.dataset.theme === 'dark' ? 'dark' : 'default';
@@ -283,12 +312,83 @@ function initMermaid() {
   window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: mermaidTheme() });
 }
 
-function renderMermaidDiagrams() {
-  if (!window.mermaid) return;
-  const nodes = els.main.querySelectorAll('pre.mermaid');
+// Resolves to the mermaid global, or null if the script could not be loaded
+// (missing asset, blocked by CSP, etc.). Never rejects.
+function loadMermaid() {
+  if (window.mermaid) return Promise.resolve(window.mermaid);
+  if (mermaidLoad) return mermaidLoad;
+  mermaidLoad = new Promise(resolve => {
+    const script = document.createElement('script');
+    script.src = assetUrl(MERMAID_SRC);
+    script.async = true;
+    script.onload = () => {
+      initMermaid();
+      resolve(window.mermaid || null);
+    };
+    script.onerror = () => {
+      script.remove();
+      mermaidLoad = null;
+      resolve(null);
+    };
+    document.head.appendChild(script);
+  });
+  return mermaidLoad;
+}
+
+// Replaces a diagram block with a visible notice plus the diagram source, so
+// a load or syntax failure is shown on the page instead of only in the console.
+function showMermaidProblem(node, title, detail, source) {
+  const box = document.createElement('div');
+  box.className = 'mermaid-error';
+  box.setAttribute('role', 'alert');
+  box.innerHTML = `
+    <div class="mermaid-error-title">${escapeHtml(title)}</div>
+    ${detail ? `<pre class="mermaid-error-detail">${escapeHtml(detail)}</pre>` : ''}
+    <pre class="code-block" data-lang="mermaid"><code>${escapeHtml(source)}</code></pre>
+  `;
+  node.replaceWith(box);
+}
+
+async function renderMermaidNode(mermaid, node) {
+  // mdLite escaped the fence body, so textContent is the original source.
+  const source = node.textContent;
+  const id = `mermaid-diagram-${++mermaidRenderSeq}`;
+  try {
+    const { svg, bindFunctions } = await mermaid.render(id, source);
+    // The user may have navigated away while this diagram was rendering.
+    if (!node.isConnected) return;
+    node.innerHTML = svg;
+    bindFunctions?.(node);
+    node.dataset.mermaidState = 'rendered';
+  } catch (err) {
+    // A failed render can leave mermaid's temporary container in <body>.
+    document.getElementById(id)?.remove();
+    document.getElementById(`d${id}`)?.remove();
+    console.error('Mermaid render failed:', err);
+    if (node.isConnected) {
+      showMermaidProblem(node, 'Diagram could not be rendered', String(err?.message || err), source);
+    }
+  }
+}
+
+async function renderMermaidDiagrams() {
+  // Claim unprocessed blocks up front so overlapping calls don't render twice.
+  const nodes = [...els.main.querySelectorAll('pre.mermaid:not([data-mermaid-state])')];
   if (!nodes.length) return;
-  nodes.forEach(node => node.removeAttribute('data-processed'));
-  window.mermaid.run({ nodes }).catch(err => console.error('Mermaid render failed:', err));
+  nodes.forEach(node => { node.dataset.mermaidState = 'pending'; });
+
+  const mermaid = await loadMermaid();
+  if (!mermaid) {
+    nodes.filter(node => node.isConnected).forEach(node => {
+      showMermaidProblem(node, 'Diagram viewer could not be loaded; showing the diagram source instead.', '', node.textContent);
+    });
+    return;
+  }
+  // Render one at a time: mermaid serializes renders internally anyway, and
+  // per-node calls let one bad diagram fail without affecting the others.
+  for (const node of nodes) {
+    if (node.isConnected) await renderMermaidNode(mermaid, node);
+  }
 }
 
 function methodBadge(method) {

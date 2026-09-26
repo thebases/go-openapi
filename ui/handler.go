@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -112,6 +113,7 @@ func render(config Config) (string, error) {
 		SwaggerBundle:    template.JS(swaggerBundle),
 		StandalonePreset: template.JS(standalonePreset),
 		Initializer:      template.JS(initializer),
+		UserCSS:          customCSSBlock(config.CustomCSS),
 	}
 
 	var html strings.Builder
@@ -140,6 +142,7 @@ func renderBase(config Config, uiDir string) (string, error) {
 		DefaultLogo:      "img/logo.svg",
 		DefaultFavicon16: "img/favicon-16x16.png",
 		DefaultFavicon32: "img/favicon-32x32.png",
+		CustomCSS:        customCSSBlock(config.CustomCSS),
 	}
 
 	var html strings.Builder
@@ -171,6 +174,7 @@ func renderScalar(config Config, uiDir string) (string, error) {
 		ScriptURL:     template.HTMLEscapeString(cdnBaseURL),
 		DocumentURL:   scalarDocumentURL(config.DocsPath, config.DocumentURL),
 		InitializerJS: template.JS(initializer),
+		UserCSS:       customCSSBlock(config.CustomCSS),
 	}
 
 	var html strings.Builder
@@ -188,6 +192,7 @@ type swaggerPageData struct {
 	SwaggerBundle    template.JS
 	StandalonePreset template.JS
 	Initializer      template.JS
+	UserCSS          template.CSS
 }
 
 type basePageData struct {
@@ -197,6 +202,7 @@ type basePageData struct {
 	DefaultLogo      string
 	DefaultFavicon16 string
 	DefaultFavicon32 string
+	CustomCSS        template.CSS
 }
 
 type scalarPageData struct {
@@ -205,6 +211,7 @@ type scalarPageData struct {
 	ScriptURL     string
 	DocumentURL   string
 	InitializerJS template.JS
+	UserCSS       template.CSS
 }
 
 // swaggerPageTemplate remains the inline HTML shell for Swagger-based providers.
@@ -217,6 +224,7 @@ var swaggerPageTemplate = template.Must(template.New("swagger-page").Parse(`<!do
   <title>{{.Title}}</title>
   <style>{{.SwaggerCSS}}</style>
   <style>{{.CustomCSS}}</style>
+  {{if .UserCSS}}<style id="docs-custom-css">{{.UserCSS}}</style>{{end}}
 </head>
 <body>
   <div id="swagger-ui"></div>
@@ -233,6 +241,7 @@ var scalarPageTemplate = template.Must(template.New("scalar-page").Parse(`<!doct
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{.Title}}</title>
   <style>{{.CustomCSS}}</style>
+  {{if .UserCSS}}<style id="docs-custom-css">{{.UserCSS}}</style>{{end}}
 </head>
 <body>
   <div id="app"></div>
@@ -243,6 +252,21 @@ var scalarPageTemplate = template.Must(template.New("scalar-page").Parse(`<!doct
   </script>
 </body>
 </html>`))
+
+// styleCloseTag matches a closing </style> tag in any letter case.
+var styleCloseTag = regexp.MustCompile(`(?i)</(style)`)
+
+// customCSSBlock turns developer-supplied CSS into template-safe content for a
+// <style> element. template.CSS is inserted verbatim, so a literal "</style"
+// would end the element early and let the rest be parsed as HTML; escaping it
+// as "<\/style" keeps it inert (inside a CSS string it still reads as "</style").
+func customCSSBlock(css string) template.CSS {
+	css = strings.TrimSpace(css)
+	if css == "" {
+		return ""
+	}
+	return template.CSS(styleCloseTag.ReplaceAllString(css, `<\/$1`))
+}
 
 func resolveUIDir(provider Provider) string {
 	switch provider {
