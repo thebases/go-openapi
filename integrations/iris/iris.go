@@ -1,89 +1,79 @@
+// Package openapiiris registers documented routes on Iris parties.
 package openapiiris
 
 import (
 	"net/http"
-	"path"
-	"strings"
 
 	"github.com/kataras/iris/v12"
 	"github.com/kataras/iris/v12/core/handlerconv"
 	core "github.com/thebases/go-openapi/core"
 )
 
-func mountDocs(router iris.Party, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
-	router.Get(documentPath, handlerconv.FromStd(documentHandler))
-	if aliasPath := docsDocumentAliasPath(docsPath, documentPath); aliasPath != "" {
-		// Keep a docs-scoped alias for the configured document basename so
-		// requests under /docs do not fall through to the docs asset handler.
-		router.Get(aliasPath, handlerconv.FromStd(documentHandler))
-	}
-	router.Get(docsPath, handlerconv.FromStd(docsHandler))
-	router.Get(docsPath+"/{asset:path}", handlerconv.FromStd(docsHandler))
+// adapter implements core.GroupAdapter for an Iris party.
+type adapter struct {
+	router iris.Party
+}
+
+// NewAdapter exposes router through the core adapter contract.
+func NewAdapter(router iris.Party) core.GroupAdapter[iris.Handler] {
+	return adapter{router: router}
+}
+
+func (a adapter) Register(method, path string, handlers ...iris.Handler) error {
+	a.router.Handle(method, path, handlers...)
 	return nil
 }
 
-var routes = core.RouteRegistrar[iris.Party, iris.Handler]{
-	Register: func(router iris.Party, method, path string, handlers ...iris.Handler) error {
-		router.Handle(method, path, handlers...)
-		return nil
-	},
-	MountDocs: mountDocs,
+func (a adapter) MountDocs(m core.DocsMount) error {
+	docs := handlerconv.FromStd(m.DocsWithAlias())
+	a.router.Get(m.DocumentPath, handlerconv.FromStd(m.Document))
+	a.router.Get(m.DocsPath, docs)
+	a.router.Get(m.DocsPath+"/{asset:path}", docs)
+	return nil
 }
 
-var docs = core.DocsRegistrar[iris.Party]{
-	Mount: mountDocs,
+func (a adapter) Group(prefix string) (core.GroupAdapter[iris.Handler], error) {
+	return adapter{router: a.router.Party(prefix)}, nil
 }
 
+// Handle documents spec and registers it on router.
 func Handle(router iris.Party, api *core.API, spec core.RouteSpec, handlers ...iris.Handler) error {
-	return routes.Handle(router, api, spec, handlers...)
+	return core.Handle[iris.Handler](api, adapter{router: router}, spec, handlers...)
 }
 
+// GET documents spec as a GET operation and registers it on router; see Handle.
 func GET(router iris.Party, api *core.API, spec core.RouteSpec, handlers ...iris.Handler) error {
-	return routes.GET(router, api, spec, handlers...)
+	return Handle(router, api, spec.WithMethod(http.MethodGet), handlers...)
 }
 
+// POST documents spec as a POST operation and registers it on router; see Handle.
 func POST(router iris.Party, api *core.API, spec core.RouteSpec, handlers ...iris.Handler) error {
-	return routes.POST(router, api, spec, handlers...)
+	return Handle(router, api, spec.WithMethod(http.MethodPost), handlers...)
 }
 
+// PUT documents spec as a PUT operation and registers it on router; see Handle.
 func PUT(router iris.Party, api *core.API, spec core.RouteSpec, handlers ...iris.Handler) error {
-	return routes.PUT(router, api, spec, handlers...)
+	return Handle(router, api, spec.WithMethod(http.MethodPut), handlers...)
 }
 
+// PATCH documents spec as a PATCH operation and registers it on router; see Handle.
 func PATCH(router iris.Party, api *core.API, spec core.RouteSpec, handlers ...iris.Handler) error {
-	return routes.PATCH(router, api, spec, handlers...)
+	return Handle(router, api, spec.WithMethod(http.MethodPatch), handlers...)
 }
 
+// DELETE documents spec as a DELETE operation and registers it on router; see Handle.
 func DELETE(router iris.Party, api *core.API, spec core.RouteSpec, handlers ...iris.Handler) error {
-	return routes.DELETE(router, api, spec, handlers...)
+	return Handle(router, api, spec.WithMethod(http.MethodDelete), handlers...)
 }
 
+// MountDocs mounts the docs UI and document on router.
 func MountDocs(router iris.Party, api *core.API, docsPath, documentPath string, config core.DocsConfig) error {
-	return docs.MountDocs(router, api, docsPath, documentPath, config)
-}
-
-var groups = core.GroupRegistrar[iris.Party, iris.Handler]{
-	RouteRegistrar: routes,
-	NewGroup: func(router iris.Party, relativePrefix string) iris.Party {
-		return router.Party(relativePrefix)
-	},
+	return core.MountDocs[iris.Handler](api, adapter{router: router}, docsPath, documentPath, config)
 }
 
 // Root wraps router as the root of a Group tree so nested Group(...) calls
 // track their own absolute prefix for OpenAPI doc keys while still handing
 // iris's native Party the relative segment it expects.
-func Root(router iris.Party, api *core.API) core.Group[iris.Party, iris.Handler] {
-	return core.NewGroup(router, api, groups, "")
-}
-
-func docsDocumentAliasPath(docsPath, documentPath string) string {
-	trimmedDocsPath := strings.TrimRight(docsPath, "/")
-	if trimmedDocsPath == "" || trimmedDocsPath == "/" {
-		return ""
-	}
-	aliasPath := trimmedDocsPath + "/" + path.Base(documentPath)
-	if aliasPath == documentPath {
-		return ""
-	}
-	return aliasPath
+func Root(router iris.Party, api *core.API) core.Group[iris.Handler] {
+	return core.NewRootGroup[iris.Handler](api, adapter{router: router})
 }

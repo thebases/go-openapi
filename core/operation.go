@@ -1,5 +1,6 @@
 package core
 
+// PathItem is the OpenAPI Path Item Object: the operations available on one path.
 type PathItem struct {
 	Summary     string                 `json:"summary,omitempty"`
 	Description string                 `json:"description,omitempty"`
@@ -16,6 +17,7 @@ type PathItem struct {
 	Extensions  map[string]any         `json:"-"`
 }
 
+// Operation is the OpenAPI Operation Object: one method on one path.
 type Operation struct {
 	Tags        []string                       `json:"tags,omitempty"`
 	Summary     string                         `json:"summary,omitempty"`

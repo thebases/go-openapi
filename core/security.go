@@ -1,5 +1,6 @@
 package core
 
+// SecurityScheme is the OpenAPI Security Scheme Object.
 type SecurityScheme struct {
 	Type             string         `json:"type"`
 	Description      string         `json:"description,omitempty"`
@@ -12,6 +13,7 @@ type SecurityScheme struct {
 	Extensions       map[string]any `json:"-"`
 }
 
+// OAuthFlows is the OpenAPI OAuth Flows Object. DeviceAuthorization is OAS 3.2 only.
 type OAuthFlows struct {
 	Implicit            *OAuthFlow `json:"implicit,omitempty"`
 	Password            *OAuthFlow `json:"password,omitempty"`
@@ -20,6 +22,7 @@ type OAuthFlows struct {
 	DeviceAuthorization *OAuthFlow `json:"deviceAuthorization,omitempty"`
 }
 
+// OAuthFlow is the OpenAPI OAuth Flow Object.
 type OAuthFlow struct {
 	AuthorizationURL       string            `json:"authorizationUrl,omitempty"`
 	DeviceAuthorizationURL string            `json:"deviceAuthorizationUrl,omitempty"`
@@ -28,4 +31,5 @@ type OAuthFlow struct {
 	Scopes                 map[string]string `json:"scopes"`
 }
 
+// SecurityRequirement is the OpenAPI Security Requirement Object: scheme name to required scopes.
 type SecurityRequirement map[string][]string

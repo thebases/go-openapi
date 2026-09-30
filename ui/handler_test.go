@@ -1,4 +1,4 @@
-package docs
+package ui
 
 import (
 	"net/http"

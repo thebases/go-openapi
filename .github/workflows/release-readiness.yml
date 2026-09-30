@@ -8,23 +8,25 @@ on:
 
 jobs:
   verify-modules:
+    name: verify (${{ matrix.name }}, ${{ matrix.go }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        # Every module is tested on its declared minimum Go and on the latest
+        # stable release.
+        go: [min, stable]
+        name: [root, chi, echo, fiber, gin, iris, examples-chi, examples-fiber, examples-gin]
         include:
-          - name: root
-            working-directory: .
-            go-version-file: go.mod
-          - name: examples-chi
-            working-directory: examples/chi
-            go-version-file: examples/chi/go.mod
-          - name: examples-fiber
-            working-directory: examples/fiber
-            go-version-file: examples/fiber/go.mod
-          - name: examples-gin
-            working-directory: examples/gin
-            go-version-file: examples/gin/go.mod
+          - { name: root, working-directory: . }
+          - { name: chi, working-directory: integrations/chi }
+          - { name: echo, working-directory: integrations/echo }
+          - { name: fiber, working-directory: integrations/fiber }
+          - { name: gin, working-directory: integrations/gin }
+          - { name: iris, working-directory: integrations/iris }
+          - { name: examples-chi, working-directory: examples/chi }
+          - { name: examples-fiber, working-directory: examples/fiber }
+          - { name: examples-gin, working-directory: examples/gin }
     defaults:
       run:
         shell: bash
@@ -33,19 +35,58 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up Go (module minimum)
+        if: matrix.go == 'min'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.working-directory }}/go.mod
+
+      - name: Set up Go (latest stable)
+        if: matrix.go == 'stable'
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Assert tidy state
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod $(ls go.sum 2>/dev/null)
+
+      - name: Assert gofmt
+        run: |
+          out="$(gofmt -s -l .)"
+          if [ -n "$out" ]; then echo "gofmt needed:"; echo "$out"; exit 1; fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race)
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+
+  lint:
+    name: lint (${{ matrix.working-directory }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        working-directory: [., integrations/chi, integrations/echo, integrations/fiber, integrations/gin, integrations/iris]
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ matrix.working-directory }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Lint and vulnerability scans run on the latest patch release, since
+      # standard-library fixes only ship there.
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: ${{ matrix.go-version-file }}
+          go-version: stable
 
-      - name: Tidy module
-        run: go mod tidy
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 
-      - name: Assert tidy state
-        run: git diff --exit-code -- go.mod go.sum
-
-      - name: List packages
-        run: go list ./...
-
-      - name: Run tests
-        run: go test ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

@@ -36,3 +36,8 @@ GEMINI.md
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Example binaries built with `go build` inside examples/<name>/
+examples/chi/chi
+examples/fiber/fiber
+examples/gin/gin

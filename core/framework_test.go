@@ -7,30 +7,36 @@ import (
 	"testing"
 )
 
+// stubRoute is an Adapter test double that records registrations and docs
+// mounts.
 type stubRoute struct {
-	method string
-	path   string
-	calls  int
+	method     string
+	path       string
+	calls      int
+	mountCalls int
 }
 
-func TestRouteRegistrarRegistersOperationAndRoute(t *testing.T) {
+func (r *stubRoute) Register(method, path string, handlers ...string) error {
+	r.method = method
+	r.path = path
+	r.calls++
+	return nil
+}
+
+func (r *stubRoute) MountDocs(DocsMount) error {
+	r.mountCalls++
+	return nil
+}
+
+func stubOperation() Operation {
+	return Operation{Responses: map[string]ResponseOrReference{"200": JSONResponse("ok", StringSchema())}}
+}
+
+func TestHandleRegistersOperationAndRoute(t *testing.T) {
 	api := New(WithTitle("Merchant API"), WithVersion("1.0.0"))
 	router := &stubRoute{}
-	registrar := RouteRegistrar[*stubRoute, string]{
-		Register: func(router *stubRoute, method, path string, handlers ...string) error {
-			router.method = method
-			router.path = path
-			router.calls++
-			return nil
-		},
-	}
 
-	err := registrar.GET(router, api, Route("/merchants/:id", Operation{
-		Responses: map[string]ResponseOrReference{
-			"200": JSONResponse("ok", StringSchema()),
-		},
-	}))
-	if err != nil {
+	if err := Handle[string](api, router, Route("/merchants/:id", stubOperation()).WithMethod(http.MethodGet), "handler"); err != nil {
 		t.Fatalf("register route: %v", err)
 	}
 	if router.calls != 1 {
@@ -39,6 +45,7 @@ func TestRouteRegistrarRegistersOperationAndRoute(t *testing.T) {
 	if router.method != http.MethodGet {
 		t.Fatalf("unexpected method: %s", router.method)
 	}
+	// The native router keeps its own syntax; only the document is canonical.
 	if router.path != "/merchants/:id" {
 		t.Fatalf("unexpected path: %s", router.path)
 	}
@@ -47,85 +54,54 @@ func TestRouteRegistrarRegistersOperationAndRoute(t *testing.T) {
 	}
 }
 
-func TestRouteRegistrarAutoMountsDocsOnce(t *testing.T) {
+func TestHandleAutoMountsDocsOncePerRouter(t *testing.T) {
 	api := New(WithTitle("Merchant API"), WithVersion("1.0.0"), WithDocStyle(DocsSwagger))
 	router := &stubRoute{}
-	mountCalls := 0
-	registrar := RouteRegistrar[*stubRoute, string]{
-		Register: func(router *stubRoute, method, path string, handlers ...string) error {
-			router.calls++
-			return nil
-		},
-		MountDocs: func(router *stubRoute, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
-			mountCalls++
-			return nil
-		},
-	}
 
-	operation := Operation{
-		Responses: map[string]ResponseOrReference{
-			"200": JSONResponse("ok", StringSchema()),
-		},
-	}
-	if err := registrar.GET(router, api, Route("/merchants/:id", operation)); err != nil {
+	if err := Handle[string](api, router, Route("/merchants/:id", stubOperation()).WithMethod(http.MethodGet), "handler"); err != nil {
 		t.Fatalf("first register route: %v", err)
 	}
-	if err := registrar.POST(router, api, Route("/merchants", operation)); err != nil {
+	if err := Handle[string](api, router, Route("/merchants", stubOperation()).WithMethod(http.MethodPost), "handler"); err != nil {
 		t.Fatalf("second register route: %v", err)
 	}
-	if mountCalls != 1 {
-		t.Fatalf("expected docs to mount once, got %d", mountCalls)
+	if router.mountCalls != 1 {
+		t.Fatalf("expected docs to mount once, got %d", router.mountCalls)
 	}
 }
 
-func TestRouteRegistrarSkipsAutoMountWithoutDocStyle(t *testing.T) {
+func TestHandleSkipsAutoMountWithoutDocStyle(t *testing.T) {
 	api := New(WithTitle("Merchant API"), WithVersion("1.0.0"))
 	router := &stubRoute{}
-	mountCalls := 0
-	registrar := RouteRegistrar[*stubRoute, string]{
-		Register: func(router *stubRoute, method, path string, handlers ...string) error {
-			router.calls++
-			return nil
-		},
-		MountDocs: func(router *stubRoute, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
-			mountCalls++
-			return nil
-		},
-	}
 
-	err := registrar.GET(router, api, Route("/merchants/:id", Operation{
-		Responses: map[string]ResponseOrReference{
-			"200": JSONResponse("ok", StringSchema()),
-		},
-	}))
-	if err != nil {
+	if err := Handle[string](api, router, Route("/merchants/:id", stubOperation()).WithMethod(http.MethodGet), "handler"); err != nil {
 		t.Fatalf("register route: %v", err)
 	}
-	if mountCalls != 0 {
-		t.Fatalf("expected docs to stay disabled, got %d mounts", mountCalls)
+	if router.mountCalls != 0 {
+		t.Fatalf("expected docs to stay disabled, got %d mounts", router.mountCalls)
 	}
 }
 
 func TestPrepareDocsMountDefaults(t *testing.T) {
 	api := New(WithTitle("Merchant API"), WithVersion("1.0.0"))
-	docsPath, documentPath, docsHandler, documentHandler, err := prepareDocsMount(api, "", "", DocsConfig{Provider: DocsSwagger, Title: "Merchant API"})
+	mount, err := prepareDocsMount(api, "", "", DocsConfig{Provider: DocsSwagger, Title: "Merchant API"})
 	if err != nil {
 		t.Fatalf("prepare docs mount: %v", err)
 	}
-	if docsPath != "/docs" {
-		t.Fatalf("unexpected docs path: %s", docsPath)
+	if mount.DocsPath != "/docs" {
+		t.Fatalf("unexpected docs path: %s", mount.DocsPath)
 	}
-	if documentPath != "/openapi.json" {
-		t.Fatalf("unexpected document path: %s", documentPath)
+	if mount.DocumentPath != "/openapi.json" {
+		t.Fatalf("unexpected document path: %s", mount.DocumentPath)
 	}
-	if docsHandler == nil || documentHandler == nil {
+	if mount.Docs == nil || mount.Document == nil {
 		t.Fatal("expected docs handlers")
 	}
 }
 
 func TestPrepareDocsMountUsesAPIStyleByDefault(t *testing.T) {
 	api := New(WithTitle("Merchant API"), WithVersion("1.0.0"), WithDocStyle(DocsBase))
-	_, _, docsHandler, _, err := prepareDocsMount(api, "/docs", "/openapi.json", DocsConfig{})
+	mount, err := prepareDocsMount(api, "/docs", "/openapi.json", DocsConfig{})
+	docsHandler := mount.Docs
 	if err != nil {
 		t.Fatalf("prepare docs mount: %v", err)
 	}
@@ -145,7 +121,8 @@ func TestPrepareDocsMountUsesAPIStyleByDefault(t *testing.T) {
 
 func TestPrepareDocsMountAllowsPerMountProviderOverride(t *testing.T) {
 	api := New(WithDocStyle(DocsBase))
-	_, _, docsHandler, _, err := prepareDocsMount(api, "/docs", "/openapi.json", DocsConfig{Provider: DocsScalar, Title: "Override API"})
+	mount, err := prepareDocsMount(api, "/docs", "/openapi.json", DocsConfig{Provider: DocsScalar, Title: "Override API"})
+	docsHandler := mount.Docs
 	if err != nil {
 		t.Fatalf("prepare docs mount: %v", err)
 	}
@@ -176,7 +153,8 @@ func TestPrepareDocsMountCustomCSSInheritanceAndOverride(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, docsHandler, _, err := prepareDocsMount(api, "/docs", "/openapi.json", tc.config)
+			mount, err := prepareDocsMount(api, "/docs", "/openapi.json", tc.config)
+			docsHandler := mount.Docs
 			if err != nil {
 				t.Fatalf("prepare docs mount: %v", err)
 			}
@@ -193,7 +171,8 @@ func TestPrepareDocsMountCustomCSSInheritanceAndOverride(t *testing.T) {
 
 func TestPrepareDocsMountServesDocsAssetsUnderMountPath(t *testing.T) {
 	api := New(WithTitle("Merchant API"), WithVersion("1.0.0"), WithDocStyle(DocsSwagger))
-	_, _, docsHandler, _, err := prepareDocsMount(api, "/docs", "/openapi.json", DocsConfig{})
+	mount, err := prepareDocsMount(api, "/docs", "/openapi.json", DocsConfig{})
+	docsHandler := mount.Docs
 	if err != nil {
 		t.Fatalf("prepare docs mount: %v", err)
 	}

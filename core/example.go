@@ -1,5 +1,6 @@
 package core
 
+// Example is the OpenAPI Example Object.
 type Example struct {
 	Summary       string         `json:"summary,omitempty"`
 	Description   string         `json:"description,omitempty"`

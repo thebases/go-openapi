@@ -1,7 +1,9 @@
-package docs
+package ui
 
 import (
 	"embed"
+	"fmt"
+	"hash/fnv"
 	"html/template"
 	"io/fs"
 	"mime"
@@ -10,11 +12,18 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 )
 
-type documentSource interface {
+// DocumentSource renders the OpenAPI document served by DocumentHandler.
+// *core.API implements it.
+type DocumentSource interface {
 	JSON() ([]byte, error)
 }
+
+// defaultScalarURL pins the Scalar runtime to one reviewed release, so a new
+// upstream publish can never change what runs on the docs page.
+const defaultScalarURL = "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.72.2"
 
 // uiFS keeps the bundled docs UI assets inside the binary so /docs can serve a
 // complete page without relying on extra static-file routes. Swagger/Base stay
@@ -24,19 +33,28 @@ type documentSource interface {
 //go:embed theme/swagger theme/base theme/scalar
 var uiFS embed.FS
 
-func DocumentHandler(source documentSource) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		raw, err := source.JSON()
-		if err != nil {
-			http.Error(w, "failed to render OpenAPI document", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_, _ = w.Write(raw)
-	})
+// DocumentHandler serves source's JSON with an ETag, answering a matching
+// If-None-Match with 304 so polling clients do not re-download the document.
+func DocumentHandler(source DocumentSource) http.Handler {
+	return documentHandler{source: source}
 }
 
+type documentHandler struct {
+	source DocumentSource
+}
+
+func (h documentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	raw, err := h.source.JSON()
+	if err != nil {
+		http.Error(w, "failed to render OpenAPI document", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	writeCacheable(w, r, raw, contentETag(raw), "no-cache")
+}
+
+// DocsHandler renders the docs page for config once and returns a handler
+// serving it plus the provider's embedded assets.
 func DocsHandler(config Config) (http.Handler, error) {
 	if config.Title == "" {
 		config.Title = "API documentation"
@@ -52,48 +70,84 @@ func DocsHandler(config Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	page := []byte(html)
+	return docsHandler{config: config, uiDir: resolveUIDir(config.Provider), page: page, etag: contentETag(page)}, nil
+}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assetName, isAssetRequest := resolveUIRequest(r, config.DocsPath)
-		if isAssetRequest {
-			if serveUIAsset(w, assetName, resolveUIDir(config.Provider)) {
-				return
-			}
-			http.NotFound(w, r)
-			return
-		}
-		if assetName != "" {
-			http.NotFound(w, r)
-			return
-		}
+type docsHandler struct {
+	config Config
+	uiDir  string
+	page   []byte
+	etag   string
+}
 
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(html))
-	}), nil
+func (h docsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	assetName, isAssetRequest := resolveUIRequest(r, h.config.DocsPath)
+	if isAssetRequest {
+		if !serveUIAsset(w, r, assetName, h.uiDir) {
+			http.NotFound(w, r)
+		}
+		return
+	}
+	if assetName != "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	if h.config.ContentSecurityPolicy != "" {
+		w.Header().Set("Content-Security-Policy", h.config.ContentSecurityPolicy)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writeCacheable(w, r, h.page, h.etag, "no-cache")
+}
+
+// writeCacheable writes body with the given validator, or 304 when the
+// client already holds it.
+func writeCacheable(w http.ResponseWriter, r *http.Request, body []byte, etag, cacheControl string) {
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", cacheControl)
+	if r != nil && etagMatches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	_, _ = w.Write(body)
+}
+
+// etagMatches implements the If-None-Match list comparison (weak compare).
+func etagMatches(header, etag string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimPrefix(strings.TrimSpace(candidate), "W/")
+		if candidate == etag || candidate == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+// contentETag is a strong validator derived from the bytes; FNV is enough
+// because it only has to detect change, not resist forgery.
+func contentETag(body []byte) string {
+	hash := fnv.New64a()
+	_, _ = hash.Write(body)
+	return fmt.Sprintf(`"%x"`, hash.Sum64())
 }
 
 func render(config Config) (string, error) {
 	uiDir := resolveUIDir(config.Provider)
-	if config.Provider == Base {
+	switch config.Provider {
+	case Base:
 		return renderBase(config, uiDir)
-	}
-	if config.Provider == Scalar {
+	case Scalar:
 		return renderScalar(config, uiDir)
+	default:
+		return renderSwagger(config, uiDir)
 	}
+}
 
-	swaggerCSS, err := readUIAsset(uiDir, "swagger-ui.css")
-	if err != nil {
-		return "", err
-	}
+// renderSwagger links the large Swagger bundles as versioned, immutable
+// assets instead of inlining ~2 MB into every HTML response.
+func renderSwagger(config Config, uiDir string) (string, error) {
 	customCSS, err := readUIAsset(uiDir, "index.css")
-	if err != nil {
-		return "", err
-	}
-	swaggerBundle, err := readUIAsset(uiDir, "swagger-ui-bundle.js")
-	if err != nil {
-		return "", err
-	}
-	standalonePreset, err := readUIAsset(uiDir, "swagger-ui-standalone-preset.js")
 	if err != nil {
 		return "", err
 	}
@@ -106,14 +160,15 @@ func render(config Config) (string, error) {
 	// per request to keep the selected UI pointed at the caller's document route.
 	initializer = strings.Replace(initializer, "https://petstore.swagger.io/v2/swagger.json", config.DocumentURL, 1)
 
+	base := docsAssetBasePath(config.DocsPath)
 	page := swaggerPageData{
-		Title:            template.HTMLEscapeString(config.Title),
-		SwaggerCSS:       template.CSS(swaggerCSS),
-		CustomCSS:        template.CSS(customCSS),
-		SwaggerBundle:    template.JS(swaggerBundle),
-		StandalonePreset: template.JS(standalonePreset),
-		Initializer:      template.JS(initializer),
-		UserCSS:          customCSSBlock(config.CustomCSS),
+		Title:         config.Title,
+		SwaggerCSSURL: versionedAssetURL(base, uiDir, "swagger-ui.css"),
+		CustomCSS:     template.CSS(customCSS),
+		BundleURL:     versionedAssetURL(base, uiDir, "swagger-ui-bundle.js"),
+		PresetURL:     versionedAssetURL(base, uiDir, "swagger-ui-standalone-preset.js"),
+		Initializer:   template.JS(initializer),
+		UserCSS:       customCSSBlock(config.CustomCSS),
 	}
 
 	var html strings.Builder
@@ -165,13 +220,15 @@ func renderScalar(config Config, uiDir string) (string, error) {
 
 	cdnBaseURL := strings.TrimRight(config.CDNBaseURL, "/")
 	if cdnBaseURL == "" {
-		cdnBaseURL = "https://cdn.jsdelivr.net/npm/@scalar/api-reference"
+		cdnBaseURL = defaultScalarURL
 	}
 
+	// html/template escapes Title and ScriptURL for their contexts itself;
+	// pre-escaping them rendered "A & B" as "A &amp;amp; B".
 	page := scalarPageData{
-		Title:         template.HTMLEscapeString(config.Title),
+		Title:         config.Title,
 		CustomCSS:     template.CSS(customCSS),
-		ScriptURL:     template.HTMLEscapeString(cdnBaseURL),
+		ScriptURL:     cdnBaseURL,
 		DocumentURL:   scalarDocumentURL(config.DocsPath, config.DocumentURL),
 		InitializerJS: template.JS(initializer),
 		UserCSS:       customCSSBlock(config.CustomCSS),
@@ -186,13 +243,13 @@ func renderScalar(config Config, uiDir string) (string, error) {
 }
 
 type swaggerPageData struct {
-	Title            string
-	SwaggerCSS       template.CSS
-	CustomCSS        template.CSS
-	SwaggerBundle    template.JS
-	StandalonePreset template.JS
-	Initializer      template.JS
-	UserCSS          template.CSS
+	Title         string
+	SwaggerCSSURL string
+	CustomCSS     template.CSS
+	BundleURL     string
+	PresetURL     string
+	Initializer   template.JS
+	UserCSS       template.CSS
 }
 
 type basePageData struct {
@@ -222,14 +279,14 @@ var swaggerPageTemplate = template.Must(template.New("swagger-page").Parse(`<!do
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{.Title}}</title>
-  <style>{{.SwaggerCSS}}</style>
+  <link rel="stylesheet" href="{{.SwaggerCSSURL}}">
   <style>{{.CustomCSS}}</style>
   {{if .UserCSS}}<style id="docs-custom-css">{{.UserCSS}}</style>{{end}}
 </head>
 <body>
   <div id="swagger-ui"></div>
-  <script>{{.SwaggerBundle}}</script>
-  <script>{{.StandalonePreset}}</script>
+  <script src="{{.BundleURL}}"></script>
+  <script src="{{.PresetURL}}"></script>
   <script>{{.Initializer}}</script>
 </body>
 </html>`))
@@ -274,8 +331,6 @@ func resolveUIDir(provider Provider) string {
 		return "theme/scalar"
 	case Base:
 		return "theme/base"
-	case Swagger, "":
-		return "theme/swagger"
 	default:
 		return "theme/swagger"
 	}
@@ -287,6 +342,65 @@ func readUIAsset(uiDir, name string) (string, error) {
 		return "", err
 	}
 	return string(raw), nil
+}
+
+// uiAsset is one embedded file with its precomputed response metadata.
+type uiAsset struct {
+	body        []byte
+	etag        string
+	contentType string
+}
+
+// uiAssets caches embedded files by path: fs.ReadFile copies the file and the
+// ETag needs a full hash, neither of which should happen per request.
+var uiAssets sync.Map
+
+func loadUIAsset(uiDir, name string) (*uiAsset, bool) {
+	key := uiDir + "/" + name
+	if cached, ok := uiAssets.Load(key); ok {
+		return cached.(*uiAsset), true
+	}
+	raw, err := fs.ReadFile(uiFS, key)
+	if err != nil {
+		return nil, false
+	}
+	contentType := uiAssetContentType(name)
+	if contentType == "" {
+		contentType = http.DetectContentType(raw)
+	}
+	asset, _ := uiAssets.LoadOrStore(key, &uiAsset{body: raw, etag: contentETag(raw), contentType: contentType})
+	return asset.(*uiAsset), true
+}
+
+// versionedAssetURL appends the asset's content hash, so the URL changes
+// whenever the embedded file does and can be cached as immutable.
+func versionedAssetURL(base, uiDir, name string) string {
+	asset, ok := loadUIAsset(uiDir, name)
+	if !ok {
+		return base + "/" + name
+	}
+	return base + "/" + name + "?v=" + strings.Trim(asset.etag, `"`)
+}
+
+// serveUIAsset writes an embedded asset. A request carrying the content hash
+// (?v=) is cached for a year; others revalidate through the ETag.
+func serveUIAsset(w http.ResponseWriter, r *http.Request, assetName, uiDir string) bool {
+	cleanedName, ok := sanitizeUIAssetPath(assetName)
+	if !ok {
+		return false
+	}
+	asset, ok := loadUIAsset(uiDir, cleanedName)
+	if !ok {
+		return false
+	}
+
+	cacheControl := "no-cache"
+	if r != nil && r.URL != nil && r.URL.Query().Get("v") == strings.Trim(asset.etag, `"`) {
+		cacheControl = "public, max-age=31536000, immutable"
+	}
+	w.Header().Set("Content-Type", asset.contentType)
+	writeCacheable(w, r, asset.body, asset.etag, cacheControl)
+	return true
 }
 
 func scalarDocumentURL(docsPath, documentURL string) string {
@@ -373,25 +487,6 @@ func resolveUIRequest(r *http.Request, docsPath string) (string, bool) {
 	return assetName, true
 }
 
-func serveUIAsset(w http.ResponseWriter, assetName, uiDir string) bool {
-	cleanedName, ok := sanitizeUIAssetPath(assetName)
-	if !ok {
-		return false
-	}
-
-	raw, err := fs.ReadFile(uiFS, uiDir+"/"+cleanedName)
-	if err != nil {
-		return false
-	}
-
-	contentType := uiAssetContentType(cleanedName)
-	if contentType == "" {
-		contentType = http.DetectContentType(raw)
-	}
-	w.Header().Set("Content-Type", contentType)
-	_, _ = w.Write(raw)
-	return true
-}
 func uiAssetContentType(assetName string) string {
 	// Embedded docs assets must use a deterministic JS MIME type because the Go
 	// extension registry can resolve .js differently per host OS, which breaks

@@ -7,23 +7,24 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	core "github.com/thebases/go-openapi/core"
 )
 
 func TestMountDocsServesDocumentAliasWithoutGinWildcardConflict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	err := mountDocs(
-		router,
-		"/docs",
-		"/openapi.json",
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	err := adapter{router: router}.MountDocs(core.DocsMount{
+		DocsPath:     "/docs",
+		DocumentPath: "/openapi.json",
+		AliasPath:    "/docs/openapi.json",
+		Docs: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("docs-ui"))
 		}),
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Document: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"openapi":"3.0.3"}`))
 		}),
-	)
+	})
 	if err != nil {
 		t.Fatalf("mount docs: %v", err)
 	}
@@ -42,17 +43,17 @@ func TestMountDocsServesDocsAssetsAfterAliasWrapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	err := mountDocs(
-		router,
-		"/docs",
-		"/merchant/spec.json",
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	err := adapter{router: router}.MountDocs(core.DocsMount{
+		DocsPath:     "/docs",
+		DocumentPath: "/merchant/spec.json",
+		AliasPath:    "/docs/spec.json",
+		Docs: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("docs-ui"))
 		}),
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Document: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"openapi":"3.0.3"}`))
 		}),
-	)
+	})
 	if err != nil {
 		t.Fatalf("mount docs: %v", err)
 	}

@@ -3,6 +3,7 @@ package openapigin
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -73,5 +74,27 @@ func TestGroupRootRouteCollapsesOntoPrefix(t *testing.T) {
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/device/", nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d", response.Code)
+	}
+}
+
+func TestGroupAutoMountsDocsOnlyAtRoot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	api := core.New(core.WithDocStyle(core.DocsSwagger))
+	router := gin.New()
+
+	op := core.Operation{Responses: map[string]core.ResponseOrReference{"200": core.JSONResponse("ok", nil)}}
+	if err := Root(router, api).Group("/merchants").GET("/:id", op, func(c *gin.Context) {}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	for _, route := range router.Routes() {
+		if strings.HasPrefix(route.Path, "/merchants/docs") || route.Path == "/merchants/openapi.json" {
+			t.Fatalf("docs mounted under the group: %s", route.Path)
+		}
+	}
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/openapi.json", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"/merchants/{id}"`) {
+		t.Fatalf("root document: %d %q", response.Code, response.Body.String())
 	}
 }

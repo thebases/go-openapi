@@ -110,19 +110,19 @@ Use the package that matches the task you are trying to complete.
 | Build and export the OpenAPI document | `github.com/thebases/go-openapi/core` |
 | Serve the docs UI directly as `net/http` handlers | `github.com/thebases/go-openapi/ui` |
 | Register Gin routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/gin` |
-| Register Fiber v2 or v3 routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/fiber` |
+| Register Fiber v3 routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/fiber` |
 | Register Chi routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/chi` |
 | Register Echo routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/echo` |
 | Register Iris routes and OpenAPI metadata together | `github.com/thebases/go-openapi/integrations/iris` |
 
 **Important:** the docs-serving directory path is `ui`, but the Go package name is `docs`.
 
-**Important:** `core` replaces the old public import path `github.com/thebases/go-openapi/openapi`. Integration imports stay under `github.com/thebases/go-openapi/integrations/*`, but they now resolve from the same root module release instead of nested module tags.
+**Important:** `core` replaces the old public import path `github.com/thebases/go-openapi/openapi`. Integration imports stay under `github.com/thebases/go-openapi/integrations/*`, and each is its own Go module: `go get github.com/thebases/go-openapi/integrations/<framework>@<version>` at the same version as the root module. The root module (`core`, `ui`) has no third-party dependencies.
 
 Example:
 
 ```go
-import docs "github.com/thebases/go-openapi/ui"
+import "github.com/thebases/go-openapi/ui"
 ```
 
 ---
@@ -167,7 +167,7 @@ err := openapifiber.GET(
 )
 ```
 
-`integrations/fiber` is version-tolerant: pass either a Fiber v2 router and handlers or a Fiber v3 router and handlers, and the adapter will bind against the router's runtime method shape.
+`integrations/fiber` targets Fiber v3: it takes a `fiber.Router` (`*fiber.App` or a group) and any handler Fiber v3 accepts. Fiber v2 is no longer supported.
 
 ### Chi
 
@@ -286,14 +286,14 @@ documentHandler := core.Docs.DocumentHandler(api)
 If you prefer the lower-level package directly, use:
 
 ```go
-import docs "github.com/thebases/go-openapi/ui"
+import "github.com/thebases/go-openapi/ui"
 ```
 
 Then create the handler with:
 
 ```go
-handler, err := docs.DocsHandler(docs.Config{
-    Provider:    docs.Swagger,
+handler, err := ui.DocsHandler(ui.Config{
+    Provider:    ui.Swagger,
     Title:       "Merchant API",
     DocumentURL: "/openapi.json",
 })
@@ -370,7 +370,7 @@ Notes:
 | `WithVersion(...)` | Sets the API version string | `0.0.0` | Change it to your release or schema version |
 | `WithDescription(...)` | Adds a description to the API metadata | empty | Change it when you want richer docs metadata |
 | `WithServer(url, description)` | Adds a server entry to the OpenAPI document | none | Change it when you want the document to advertise one or more environments |
-| `WithOpenAPIVersion(...)` | Selects the generated spec version: `0`=3.0.4, `1`=3.1.1, `2`=3.2.0 | `2` (3.2.0) | Change it when a consumer or tool requires an older OpenAPI version |
+| `WithOpenAPIVersion(...)` | Selects the generated spec version: `core.Version30`=3.0.4, `core.Version31`=3.1.1, `core.Version32`=3.2.0 | `core.Version32` (3.2.0) | Change it when a consumer or tool requires an older OpenAPI version |
 | `WithDocStyle(...)` | Enables docs auto-mounting and selects the default UI provider | disabled | Change it when you want `/docs` and `/openapi.json` exposed automatically |
 | `DocsConfig.Provider` | Chooses the docs UI for a manual mount | inherited from API docs style or package default | Change it when a specific mount should use Swagger, Base, or Scalar |
 | `DocsConfig.Title` | Overrides the page title for a manual docs mount | inherited from API title when available | Change it when a docs page needs a different label |
@@ -387,7 +387,7 @@ Notes:
 ```go
 api := core.New(
     core.WithTitle("Merchant API"),
-    core.WithOpenAPIVersion(0), // 0 = 3.0.4, 1 = 3.1.1, 2 = 3.2.0 (default)
+    core.WithOpenAPIVersion(core.Version30), // Version30 = 3.0.4, Version31 = 3.1.1, Version32 = 3.2.0 (default)
 )
 ```
 
@@ -408,7 +408,7 @@ Use `core.MakeNullable("string")` when building a schema by hand to get the corr
 | Module type | What it means |
 |---|---|
 | Root public API: `core` | The main package for document creation, schema registration, JSON output, and facade helpers |
-| Docs package: `ui` | The docs-serving package path; imported in Go code as `docs` |
+| Docs package: `ui` | The docs-serving package path and package name (`ui`) |
 | Integration packages: `integrations/*` | Supported root-module packages for framework-specific route registration |
 | Example modules: `examples/*` | Local examples for learning and validation; not supported as installable release surfaces |
 

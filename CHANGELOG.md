@@ -5,6 +5,67 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v1.0.0] - 2026-09-30
+
+First stable release. The public API of `core`, `ui`, and every `integrations/*` module now follows Semantic Versioning: no breaking changes until v2 (see "API stability" in `README.md`). Every module is tagged at `v1.0.0`. Upgrading from v0.0.x? See "Migrating to v1.0.0" in `README.md`.
+
+### Breaking
+
+- **Module split.** Each `integrations/<fw>` directory is now its own Go module, tagged `integrations/<fw>/vX.Y.Z`. The root module (`core`, `ui`) has no third-party requires, so installing one integration no longer pulls every framework into `go.sum`. Import paths are unchanged.
+- **Fiber v2 dropped.** `integrations/fiber` is typed against Fiber v3 (`fiber.Router`). This removes ~300 lines of reflection.
+- The `ui` package is now named `ui` (it was `docs` in directory `ui`).
+- `core.Group` has one type parameter (`Group[H]`), and group creation errors are returned from `Handle` or `Err()` instead of panicking (Fiber).
+- `WithOpenAPIVersion` takes a `core.SpecVersion`; unknown versions make `JSON()` fail with `ErrUnsupportedVersion`.
+- A route needs at least one handler (`ErrNoHandler`). Chi and Echo reject extra handlers instead of silently dropping them.
+- `ValidateDocument(nil)` returns an error.
+
+### Changed (generated output)
+
+- Go `int`/`int64` map to `format: int64`, `uint32` to `int64` with `minimum: 0`, and `uint`/`uint64` to `integer` with `minimum: 0` and no format. `int` used to be `int32`, which truncates 64-bit IDs and amounts in generated clients.
+- Embedded structs are flattened with `encoding/json` rules. Fields promoted through an embedded pointer are optional.
+- `enum`, `example`, and `default` tags are converted to the field's type.
+- Anonymous structs are inlined instead of becoming invalid component names.
+- Generic type names are sanitized (`Page[User]` → `Page_User`).
+- The docs UI is auto-mounted only on the root of a `Root(...)` group tree, not under every group.
+- The Swagger page links its bundles as versioned, immutable assets. The HTML response is ~2 KB instead of ~2 MB.
+- The Scalar runtime is pinned to `@scalar/api-reference@1.72.2`.
+- `/openapi.json` and embedded assets send an `ETag` and answer `If-None-Match` with `304`.
+- `Document.Validate()` reports all problems at once (`errors.Join`), in a deterministic order. It also checks undeclared path template variables, duplicate `(name, in)` parameters, response keys, component names, and dangling local `$ref`s.
+
+### Added
+
+- `core.Adapter[H]` / `core.GroupAdapter[H]` interfaces, plus `core.Handle`, `core.MountDocs`, `core.NewRootGroup`, `core.DocsMount`. Each integration exports `NewAdapter(router)`.
+- `core.WithDescriptionFS(fs.FS)` for embedded Markdown descriptions. Paths are sandboxed with `fs.ValidPath`, and `..` is rejected with `ErrInvalidDescription`.
+- `API.Snapshot()` returns a deep-copied document or the rendering error, for fail-fast boots.
+- `core.SchemaNamer` / `core.RequiredPolicy` hooks on `Reflector` (`Namer`, `Required`).
+- `ui.Config.ContentSecurityPolicy`.
+- Sentinel errors: `ErrNoHandler`, `ErrDuplicateComponent`, `ErrInvalidComponentName`, `ErrUnsupportedVersion`, `ErrInvalidDescription`, `ErrInvalidTag`.
+- CI tests every module on its minimum Go and on stable, with `-race`, gofmt, vet, `staticcheck`, and `govulncheck`. `make lint`/`make vuln` are available locally.
+- Golden OpenAPI documents for 3.0.4, 3.1.1, and 3.2.0 (`core/testdata/golden`, regenerate with `go test ./core -run Golden -update`). They pin the exact output, and each one must pass `Validate()`.
+- Runnable pkg.go.dev examples (`Example`, `ExampleReflector`, `ExampleNewRootGroup`, `ExampleHandle`, `ExampleWithOpenAPIVersion`).
+- Doc comments on every exported identifier.
+
+### Removed
+
+- The reflection-based `core.Chi`, `core.Gin`, `core.Fiber`, `core.Echo`, and `core.Iris` facades (`any`-typed routers and handlers, runtime type errors). Use the typed `integrations/<fw>` packages. `core.Docs.Handler` / `core.Docs.DocumentHandler` remain.
+- `core.RouteRegistrar`, `core.GroupRegistrar`, `core.DocsRegistrar`, and `core.NewGroup`. Implement `core.Adapter` / `core.GroupAdapter`, then call `core.Handle`, `core.MountDocs`, or `core.NewRootGroup`.
+- `Reflector.Visiting`, which was unused.
+- `core.ValidateDocument`'s silent acceptance of `nil`.
+
+### Fixed
+
+- A second type with the same name (e.g. `billing.Error` and `auth.Error`) silently reused the first type's schema. It now gets a package-qualified component (`auth_Error`).
+- An operation stayed in the document when native registration failed or panicked. Registration is now all-or-nothing.
+- `API.Document()` returned internal maps, so callers could mutate state without the lock. It now returns a deep copy.
+- `AddOperation` with an unsupported method left an empty path entry.
+- Specification extensions (`Extensions` / `x-*`) were never serialized.
+- `/openapi.json` re-walked, re-read Markdown files, and re-marshaled the document under an exclusive lock on every request. It now serves a per-revision cache: 24 µs vs 3.9 ms for 200 operations.
+- Titles were HTML-escaped twice in the Swagger and Scalar pages (`A &amp;amp; B`).
+- Invalid doc paths from unnamed wildcards (`/*`, Fiber `+`), optional params (`:id?`), and Fiber constraints (`:id<int>`).
+- `Group("merchants")` without a leading slash produced a relative doc path.
+- Malformed numeric tags (`minimum:"abc"`) were silently ignored. They now return `ErrInvalidTag`.
+- Compiled example binaries were committed to the repository.
+
 ## [v0.0.6] - 2026-09-26
 
 ### Added

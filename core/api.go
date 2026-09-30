@@ -1,63 +1,61 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
-	"reflect"
+	"io/fs"
 	"strings"
 	"sync"
 
 	openapidocs "github.com/thebases/go-openapi/ui"
 )
 
-var (
-	ErrInvalidPath       = errors.New("openapi: path must start with /")
-	ErrUnsupportedMethod = errors.New("openapi: unsupported HTTP method")
-	ErrDuplicateRoute    = errors.New("openapi: operation already registered")
-	ErrMissingResponses  = errors.New("openapi: operation must define at least one response")
-)
-
+// API accumulates an OpenAPI document from route registrations. It is safe for
+// concurrent use: registrations may run while the document is being served.
 type API struct {
 	mu sync.RWMutex
 
 	doc          Document
 	version      SpecVersion
+	descriptions fs.FS
 	docsProvider DocsProvider
 	docsCSS      string
 	docsEnabled  bool
-	docsMounted  map[string]bool
+	docsMounted  map[any]bool
+
+	// rev is bumped on every successful mutation of doc; built caches the
+	// rendered document for one rev so serving never re-walks or re-marshals
+	// an unchanged document.
+	rev   uint64
+	built *snapshot
 }
 
+// snapshot is an immutable rendering of the document at one revision.
+type snapshot struct {
+	rev  uint64
+	doc  Document
+	json []byte
+}
+
+// Option configures an API created by New.
 type Option func(*API)
 
+// DocsConfig configures a docs UI mount; see ui.Config.
 type DocsConfig = openapidocs.Config
 
+// DocsProvider selects the docs UI theme; see ui.Provider.
 type DocsProvider = openapidocs.Provider
 
+// Docs UI providers, re-exported from the ui package.
 const (
 	DocsSwagger DocsProvider = openapidocs.Swagger
 	DocsBase    DocsProvider = openapidocs.Base
 	DocsScalar  DocsProvider = openapidocs.Scalar
 )
 
-var (
-	Docs  docsNamespace
-	Gin   ginNamespace
-	Fiber fiberNamespace
-	Chi   chiNamespace
-	Echo  echoNamespace
-	Iris  irisNamespace
-)
-
-type docsNamespace struct{}
-type ginNamespace struct{}
-type fiberNamespace struct{}
-type chiNamespace struct{}
-type echoNamespace struct{}
-type irisNamespace struct{}
-
+// New creates an API with a minimal valid document (title "API", version
+// "0.0.0", OpenAPI DefaultVersion) and applies options in order.
 func New(options ...Option) *API {
 	api := &API{
 		doc: Document{
@@ -74,7 +72,7 @@ func New(options ...Option) *API {
 		},
 		version:      DefaultVersion,
 		docsProvider: DocsSwagger,
-		docsMounted:  map[string]bool{},
+		docsMounted:  map[any]bool{},
 	}
 
 	for _, option := range options {
@@ -84,30 +82,37 @@ func New(options ...Option) *API {
 	return api
 }
 
+// WithTitle sets info.title.
 func WithTitle(title string) Option {
 	return func(api *API) {
 		api.doc.Info.Title = title
 	}
 }
 
+// WithDescription sets info.description. A relative single-line "*.md" value
+// is replaced by that file's content read from the description FS.
 func WithDescription(description string) Option {
 	return func(api *API) {
 		api.doc.Info.Description = description
 	}
 }
 
+// WithVersion sets info.version (the API's own version, not the OpenAPI one).
 func WithVersion(version string) Option {
 	return func(api *API) {
 		api.doc.Info.Version = version
 	}
 }
 
+// WithServer appends a server entry.
 func WithServer(url, description string) Option {
 	return func(api *API) {
 		api.doc.Servers = append(api.doc.Servers, Server{URL: url, Description: description})
 	}
 }
 
+// WithDocStyle selects the docs UI theme and enables automatic docs mounting
+// on the first route registration.
 func WithDocStyle(provider DocsProvider) Option {
 	return func(api *API) {
 		api.docsProvider = provider
@@ -125,6 +130,20 @@ func WithCustomCSS(css string) Option {
 	}
 }
 
+// WithDescriptionFS sets the filesystem that "*.md" description values are
+// read from. Paths must be fs.ValidPath-style (relative, no ".." segments), so
+// descriptions can never read outside fsys. Passing an embed.FS keeps
+// descriptions inside the binary, independent of the process working
+// directory. Without this option, descriptions are read from os.DirFS(".").
+func WithDescriptionFS(fsys fs.FS) Option {
+	return func(api *API) {
+		api.descriptions = fsys
+	}
+}
+
+// AddOperation records operation under method and an OpenAPI-style path
+// ("/merchants/{id}"). The operation is deep-copied, so later changes by the
+// caller do not affect the document.
 func (api *API) AddOperation(method, path string, operation Operation) error {
 	if !strings.HasPrefix(path, "/") {
 		return ErrInvalidPath
@@ -141,10 +160,11 @@ func (api *API) AddOperation(method, path string, operation Operation) error {
 	item := api.doc.Paths[path]
 	if item == nil {
 		item = &PathItem{}
-		api.doc.Paths[path] = item
 	}
 
-	target, err := operationSlot(item, method)
+	// Resolve the method slot before storing a new PathItem, so an unsupported
+	// method never leaves an empty path entry behind.
+	target, err := item.operationSlot(method)
 	if err != nil {
 		return err
 	}
@@ -152,103 +172,197 @@ func (api *API) AddOperation(method, path string, operation Operation) error {
 		return fmt.Errorf("%w: %s %s", ErrDuplicateRoute, method, path)
 	}
 
-	copy := operation
-	*target = &copy
+	stored := cloneValue(operation)
+	*target = &stored
+	if api.doc.Paths == nil {
+		api.doc.Paths = map[string]*PathItem{}
+	}
+	api.doc.Paths[path] = item
+	api.rev++
 	return nil
 }
 
+// removeOperation undoes a successful AddOperation, dropping the path entry
+// once it holds no operation. It is used to roll back when native route
+// registration fails after the operation was recorded.
+func (api *API) removeOperation(method, path string) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+
+	item := api.doc.Paths[path]
+	if item == nil {
+		return
+	}
+	target, err := item.operationSlot(strings.ToUpper(method))
+	if err != nil || *target == nil {
+		return
+	}
+	*target = nil
+	if item.isEmpty() {
+		delete(api.doc.Paths, path)
+	}
+	api.rev++
+}
+
+// rollbackOperation is deferred by route registration: unless *registered was
+// set, the operation recorded for method/path is removed again. It also runs
+// while a native router panics, so the document never keeps a route that was
+// not actually mounted.
+func (api *API) rollbackOperation(registered *bool, method, path string) {
+	if !*registered {
+		api.removeOperation(method, path)
+	}
+}
+
+// RegisterSchema adds a reusable schema under components.schemas.
 func (api *API) RegisterSchema(name string, schema *SchemaOrReference) error {
-	if strings.TrimSpace(name) == "" || schema == nil {
-		return errors.New("openapi: schema name and value are required")
-	}
-
 	api.mu.Lock()
 	defer api.mu.Unlock()
-
-	if api.doc.Components == nil {
-		api.doc.Components = &Components{Schemas: map[string]*SchemaOrReference{}}
-	}
-	if api.doc.Components.Schemas == nil {
-		api.doc.Components.Schemas = map[string]*SchemaOrReference{}
-	}
-	if _, exists := api.doc.Components.Schemas[name]; exists {
-		return fmt.Errorf("openapi: schema %q already registered", name)
-	}
-
-	api.doc.Components.Schemas[name] = schema
-	return nil
+	return api.commit(putComponent(&api.components().Schemas, "schema", name, schema))
 }
 
+// RegisterExample adds a reusable example under components.examples.
 func (api *API) RegisterExample(name string, example *ExampleOrReference) error {
-	if strings.TrimSpace(name) == "" || example == nil {
-		return errors.New("openapi: example name and value are required")
-	}
-
 	api.mu.Lock()
 	defer api.mu.Unlock()
-
-	if api.doc.Components == nil {
-		api.doc.Components = &Components{Examples: map[string]*ExampleOrReference{}}
-	}
-	if api.doc.Components.Examples == nil {
-		api.doc.Components.Examples = map[string]*ExampleOrReference{}
-	}
-	if _, exists := api.doc.Components.Examples[name]; exists {
-		return fmt.Errorf("openapi: example %q already registered", name)
-	}
-
-	api.doc.Components.Examples[name] = example
-	return nil
+	return api.commit(putComponent(&api.components().Examples, "example", name, example))
 }
 
+// RegisterSecurityScheme adds a scheme under components.securitySchemes.
 func (api *API) RegisterSecurityScheme(name string, scheme *SecuritySchemeOrReference) error {
-	if strings.TrimSpace(name) == "" || scheme == nil {
-		return errors.New("openapi: security scheme name and value are required")
-	}
-
 	api.mu.Lock()
 	defer api.mu.Unlock()
+	return api.commit(putComponent(&api.components().SecuritySchemes, "security scheme", name, scheme))
+}
 
+// components returns doc.Components, creating it on first use. Callers must
+// hold api.mu for writing.
+func (api *API) components() *Components {
 	if api.doc.Components == nil {
-		api.doc.Components = &Components{SecuritySchemes: map[string]*SecuritySchemeOrReference{}}
+		api.doc.Components = &Components{}
 	}
-	if api.doc.Components.SecuritySchemes == nil {
-		api.doc.Components.SecuritySchemes = map[string]*SecuritySchemeOrReference{}
-	}
-	if _, exists := api.doc.Components.SecuritySchemes[name]; exists {
-		return fmt.Errorf("openapi: security scheme %q already registered", name)
-	}
+	return api.doc.Components
+}
 
-	api.doc.Components.SecuritySchemes[name] = scheme
+// commit bumps the revision after a successful mutation so the next read
+// rebuilds the cached snapshot. Callers must hold api.mu for writing.
+func (api *API) commit(err error) error {
+	if err == nil {
+		api.rev++
+	}
+	return err
+}
+
+// putComponent validates name and value and stores value in *m, refusing to
+// overwrite an existing entry.
+func putComponent[T any](m *map[string]*T, kind, name string, value *T) error {
+	if strings.TrimSpace(name) == "" || value == nil {
+		return fmt.Errorf("openapi: %s name and value are required", kind)
+	}
+	if !componentNamePattern.MatchString(name) {
+		return fmt.Errorf("%w: %s %q", ErrInvalidComponentName, kind, name)
+	}
+	if *m == nil {
+		*m = map[string]*T{}
+	}
+	if _, exists := (*m)[name]; exists {
+		return fmt.Errorf("%w: %s %q already registered", ErrDuplicateComponent, kind, name)
+	}
+	(*m)[name] = value
 	return nil
 }
 
+// Document returns a deep copy of the document with Markdown descriptions
+// resolved. If resolution fails, it returns an unresolved copy; use Snapshot
+// to observe the error.
 func (api *API) Document() Document {
-	api.mu.Lock()
-	defer api.mu.Unlock()
-
-	_ = resolveDocumentDescriptions(&api.doc)
-	return api.doc
+	doc, err := api.Snapshot()
+	if err != nil {
+		api.mu.RLock()
+		defer api.mu.RUnlock()
+		return cloneValue(api.doc)
+	}
+	return doc
 }
 
-func (api *API) JSON() ([]byte, error) {
-	api.mu.Lock()
-	defer api.mu.Unlock()
+// Snapshot returns a deep copy of the resolved document, or the error that
+// prevented rendering it (for example a missing Markdown description).
+// Calling it once at startup turns such errors into fail-fast boot errors
+// instead of 500s on the document endpoint.
+func (api *API) Snapshot() (Document, error) {
+	snap, err := api.snapshot()
+	if err != nil {
+		return Document{}, err
+	}
+	return cloneValue(snap.doc), nil
+}
 
-	if err := resolveDocumentDescriptions(&api.doc); err != nil {
+// JSON renders the document for the configured OpenAPI version. The result is
+// cached per document revision, so repeated calls between registrations cost
+// one copy of the bytes.
+func (api *API) JSON() ([]byte, error) {
+	snap, err := api.snapshot()
+	if err != nil {
 		return nil, err
 	}
-	raw, err := json.MarshalIndent(api.doc, "", "  ")
+	return bytes.Clone(snap.json), nil
+}
+
+// snapshot returns the cached rendering for the current revision, rebuilding
+// it at most once per revision. The fast path only takes the read lock.
+func (api *API) snapshot() (*snapshot, error) {
+	api.mu.RLock()
+	built := api.built
+	current := built != nil && built.rev == api.rev
+	api.mu.RUnlock()
+	if current {
+		return built, nil
+	}
+
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	// Another goroutine may have rebuilt while we waited for the write lock.
+	if api.built != nil && api.built.rev == api.rev {
+		return api.built, nil
+	}
+
+	snap, err := api.render()
+	if err != nil {
+		// Errors are not cached, so fixing a description file on disk
+		// recovers without a new registration.
+		return nil, err
+	}
+	api.built = snap
+	return snap, nil
+}
+
+// render builds a snapshot from a deep copy of the document, so description
+// resolution never mutates the registered model. Callers must hold api.mu.
+func (api *API) render() (*snapshot, error) {
+	if !api.version.valid() {
+		return nil, fmt.Errorf("%w: %d", ErrUnsupportedVersion, int(api.version))
+	}
+
+	doc := cloneValue(api.doc)
+	resolver := descriptionResolver{fsys: api.descriptions}
+	if err := resolver.resolveDocument(&doc); err != nil {
+		return nil, err
+	}
+
+	raw, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return nil, err
 	}
 
 	// The Go model is JSON Schema 2020-12 shaped (OAS 3.1/3.2 semantics); 3.0.4
 	// output needs its Schema Objects downgraded to the incompatible 3.0 subset.
-	if api.version != Version30 {
-		return raw, nil
+	if api.version == Version30 {
+		if raw, err = downgradeToVersion30(raw); err != nil {
+			return nil, err
+		}
 	}
-	return downgradeToVersion30(raw)
+
+	return &snapshot{rev: api.rev, doc: doc, json: raw}, nil
 }
 
 func (api *API) docsTitle() string {
@@ -269,7 +383,7 @@ func (api *API) shouldAutoMountDocs() bool {
 	return api.docsEnabled
 }
 
-func (api *API) markDocsMounted(key string) bool {
+func (api *API) markDocsMounted(key any) bool {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	if api.docsMounted[key] {
@@ -279,704 +393,50 @@ func (api *API) markDocsMounted(key string) bool {
 	return true
 }
 
-func (api *API) unmarkDocsMounted(key string) {
+func (api *API) unmarkDocsMounted(key any) {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	delete(api.docsMounted, key)
 }
 
-func operationSlot(item *PathItem, method string) (**Operation, error) {
-	switch method {
-	case "GET":
-		return &item.Get, nil
-	case "PUT":
-		return &item.Put, nil
-	case "POST":
-		return &item.Post, nil
-	case "DELETE":
-		return &item.Delete, nil
-	case "OPTIONS":
-		return &item.Options, nil
-	case "HEAD":
-		return &item.Head, nil
-	case "PATCH":
-		return &item.Patch, nil
-	case "TRACE":
-		return &item.Trace, nil
-	default:
-		return nil, ErrUnsupportedMethod
-	}
-}
-
+// CanonicalPath converts any supported framework route syntax (":id",
+// "*path", "{id:int}", Fiber "<constraint>"/"?" suffixes, unnamed "*"/"+"
+// wildcards) into OpenAPI "{name}" templating.
 func CanonicalPath(path string) string {
 	return FiberPathToOpenAPI(IrisPathToOpenAPI(path))
 }
 
+// StringSchema returns an inline {type: string} schema.
 func StringSchema() *SchemaOrReference {
 	return InlineSchema(&Schema{Type: "string"})
 }
 
+// IntegerSchema returns an inline integer schema with the given format.
 func IntegerSchema(format string) *SchemaOrReference {
 	return InlineSchema(&Schema{Type: "integer", Format: format})
 }
 
+// ArraySchema returns an inline array schema of items.
 func ArraySchema(items *SchemaOrReference) *SchemaOrReference {
 	return InlineSchema(&Schema{Type: "array", Items: items})
 }
 
+// RefSchema is an alias of SchemaRef kept for compatibility.
 func RefSchema(name string) *SchemaOrReference {
 	return SchemaRef(name)
 }
 
+// PathParameter returns a required path parameter.
 func PathParameter(name string, schema *SchemaOrReference) ParameterOrReference {
 	return ParameterOrReference{Value: &Parameter{Name: name, In: "path", Required: true, Schema: schema}}
 }
 
+// QueryParameter returns an optional query parameter.
 func QueryParameter(name string, schema *SchemaOrReference) ParameterOrReference {
 	return ParameterOrReference{Value: &Parameter{Name: name, In: "query", Schema: schema}}
 }
 
+// JSONResponse returns an application/json response.
 func JSONResponse(description string, schema *SchemaOrReference) ResponseOrReference {
 	return ResponseOrReference{Value: &Response{Description: description, Content: map[string]MediaType{"application/json": {Schema: schema}}}}
-}
-
-func (docsNamespace) Handler(config DocsConfig) (http.Handler, error) {
-	return openapidocs.DocsHandler(config)
-}
-
-func (docsNamespace) DocumentHandler(api *API) http.Handler {
-	return openapidocs.DocumentHandler(api)
-}
-
-func (ginNamespace) Handle(router any, api *API, spec RouteSpec, handlers ...any) error {
-	if err := registerOperation(api, spec.Method, spec.Path, spec.Operation); err != nil {
-		return err
-	}
-	if err := mountDocsIfConfigured(router, api, mountGinDocs); err != nil {
-		return err
-	}
-	return callVariadicMethod(router, "Handle", []any{spec.Method, spec.Path}, handlers)
-}
-
-func (ginNamespace) GET(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Gin.Handle(router, api, spec.WithMethod(http.MethodGet), handlers...)
-}
-func (ginNamespace) POST(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Gin.Handle(router, api, spec.WithMethod(http.MethodPost), handlers...)
-}
-func (ginNamespace) PUT(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Gin.Handle(router, api, spec.WithMethod(http.MethodPut), handlers...)
-}
-func (ginNamespace) PATCH(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Gin.Handle(router, api, spec.WithMethod(http.MethodPatch), handlers...)
-}
-func (ginNamespace) DELETE(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Gin.Handle(router, api, spec.WithMethod(http.MethodDelete), handlers...)
-}
-
-func (ginNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
-	docsPath, documentPath, docsHandler, documentHandler, err := prepareDocsMount(api, docsPath, documentPath, config)
-	if err != nil {
-		return err
-	}
-	return mountGinDocs(router, docsPath, documentPath, docsHandler, documentHandler)
-}
-
-func (fiberNamespace) Handle(router any, api *API, spec RouteSpec, handlers ...any) error {
-	if err := registerOperation(api, spec.Method, spec.Path, spec.Operation); err != nil {
-		return err
-	}
-	if err := mountDocsIfConfigured(router, api, mountFiberDocs); err != nil {
-		return err
-	}
-	return callFiberAddMethod(router, spec.Method, spec.Path, handlers)
-}
-func (fiberNamespace) GET(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Fiber.Handle(router, api, spec.WithMethod(http.MethodGet), handlers...)
-}
-func (fiberNamespace) POST(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Fiber.Handle(router, api, spec.WithMethod(http.MethodPost), handlers...)
-}
-func (fiberNamespace) PUT(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Fiber.Handle(router, api, spec.WithMethod(http.MethodPut), handlers...)
-}
-func (fiberNamespace) PATCH(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Fiber.Handle(router, api, spec.WithMethod(http.MethodPatch), handlers...)
-}
-func (fiberNamespace) DELETE(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Fiber.Handle(router, api, spec.WithMethod(http.MethodDelete), handlers...)
-}
-
-func (fiberNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
-	docsPath, documentPath, docsHandler, documentHandler, err := prepareDocsMount(api, docsPath, documentPath, config)
-	if err != nil {
-		return err
-	}
-	return mountFiberDocs(router, docsPath, documentPath, docsHandler, documentHandler)
-}
-
-func (chiNamespace) Handle(router any, api *API, spec RouteSpec, handler http.Handler) error {
-	if err := registerOperation(api, spec.Method, spec.Path, spec.Operation); err != nil {
-		return err
-	}
-	if err := mountDocsIfConfigured(router, api, mountChiDocs); err != nil {
-		return err
-	}
-	return callMethodExact(router, "Method", spec.Method, spec.Path, handler)
-}
-func (chiNamespace) GET(router any, api *API, spec RouteSpec, handler http.HandlerFunc) error {
-	return Chi.Handle(router, api, spec.WithMethod(http.MethodGet), handler)
-}
-func (chiNamespace) POST(router any, api *API, spec RouteSpec, handler http.HandlerFunc) error {
-	return Chi.Handle(router, api, spec.WithMethod(http.MethodPost), handler)
-}
-func (chiNamespace) PUT(router any, api *API, spec RouteSpec, handler http.HandlerFunc) error {
-	return Chi.Handle(router, api, spec.WithMethod(http.MethodPut), handler)
-}
-func (chiNamespace) PATCH(router any, api *API, spec RouteSpec, handler http.HandlerFunc) error {
-	return Chi.Handle(router, api, spec.WithMethod(http.MethodPatch), handler)
-}
-func (chiNamespace) DELETE(router any, api *API, spec RouteSpec, handler http.HandlerFunc) error {
-	return Chi.Handle(router, api, spec.WithMethod(http.MethodDelete), handler)
-}
-
-func (chiNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
-	docsPath, documentPath, docsHandler, documentHandler, err := prepareDocsMount(api, docsPath, documentPath, config)
-	if err != nil {
-		return err
-	}
-	return mountChiDocs(router, docsPath, documentPath, docsHandler, documentHandler)
-}
-
-func (echoNamespace) Handle(router any, api *API, spec RouteSpec, handlers ...any) error {
-	if err := registerOperation(api, spec.Method, spec.Path, spec.Operation); err != nil {
-		return err
-	}
-	if err := mountDocsIfConfigured(router, api, mountEchoDocs); err != nil {
-		return err
-	}
-	return callVariadicMethod(router, "Add", []any{spec.Method, spec.Path}, handlers)
-}
-
-func (echoNamespace) GET(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Echo.Handle(router, api, spec.WithMethod(http.MethodGet), handlers...)
-}
-func (echoNamespace) POST(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Echo.Handle(router, api, spec.WithMethod(http.MethodPost), handlers...)
-}
-func (echoNamespace) PUT(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Echo.Handle(router, api, spec.WithMethod(http.MethodPut), handlers...)
-}
-func (echoNamespace) PATCH(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Echo.Handle(router, api, spec.WithMethod(http.MethodPatch), handlers...)
-}
-func (echoNamespace) DELETE(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Echo.Handle(router, api, spec.WithMethod(http.MethodDelete), handlers...)
-}
-
-func (echoNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
-	docsPath, documentPath, docsHandler, documentHandler, err := prepareDocsMount(api, docsPath, documentPath, config)
-	if err != nil {
-		return err
-	}
-	return mountEchoDocs(router, docsPath, documentPath, docsHandler, documentHandler)
-}
-
-func (irisNamespace) Handle(router any, api *API, spec RouteSpec, handlers ...any) error {
-	if err := registerOperation(api, spec.Method, spec.Path, spec.Operation); err != nil {
-		return err
-	}
-	if err := mountDocsIfConfigured(router, api, mountIrisDocs); err != nil {
-		return err
-	}
-	return callVariadicMethod(router, "Handle", []any{spec.Method, spec.Path}, handlers)
-}
-
-func (irisNamespace) GET(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Iris.Handle(router, api, spec.WithMethod(http.MethodGet), handlers...)
-}
-func (irisNamespace) POST(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Iris.Handle(router, api, spec.WithMethod(http.MethodPost), handlers...)
-}
-func (irisNamespace) PUT(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Iris.Handle(router, api, spec.WithMethod(http.MethodPut), handlers...)
-}
-func (irisNamespace) PATCH(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Iris.Handle(router, api, spec.WithMethod(http.MethodPatch), handlers...)
-}
-func (irisNamespace) DELETE(router any, api *API, spec RouteSpec, handlers ...any) error {
-	return Iris.Handle(router, api, spec.WithMethod(http.MethodDelete), handlers...)
-}
-
-func (irisNamespace) MountDocs(router any, api *API, docsPath, documentPath string, config DocsConfig) error {
-	docsPath, documentPath, docsHandler, documentHandler, err := prepareDocsMount(api, docsPath, documentPath, config)
-	if err != nil {
-		return err
-	}
-	return mountIrisDocs(router, docsPath, documentPath, docsHandler, documentHandler)
-}
-
-func mountGinDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
-	documentRouteHandler, err := makeGinHTTPHandler(router, documentHandler)
-	if err != nil {
-		return err
-	}
-	docsRouteHandler, err := makeGinHTTPHandler(router, docsHandler)
-	if err != nil {
-		return err
-	}
-	if err := callVariadicMethod(router, "GET", []any{documentPath}, []any{documentRouteHandler.Interface()}); err != nil {
-		return err
-	}
-	if err := callVariadicMethod(router, "GET", []any{docsPath}, []any{docsRouteHandler.Interface()}); err != nil {
-		return err
-	}
-	return callVariadicMethod(router, "GET", []any{docsPath + "/*asset"}, []any{docsRouteHandler.Interface()})
-}
-
-func mountFiberDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
-	documentRouteHandler, err := makeFiberHTTPHandler(router, documentHandler)
-	if err != nil {
-		return err
-	}
-	docsRouteHandler, err := makeFiberHTTPHandler(router, docsHandler)
-	if err != nil {
-		return err
-	}
-	if err := callFiberMethod(router, "Get", []any{documentPath}, []any{documentRouteHandler.Interface()}); err != nil {
-		return err
-	}
-	if err := callFiberMethod(router, "Get", []any{docsPath}, []any{docsRouteHandler.Interface()}); err != nil {
-		return err
-	}
-	return callFiberMethod(router, "Get", []any{docsPath + "/*"}, []any{docsRouteHandler.Interface()})
-}
-
-func mountChiDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
-	if err := callMethodExact(router, "Handle", documentPath, documentHandler); err != nil {
-		return err
-	}
-	if err := callMethodExact(router, "Handle", docsPath, docsHandler); err != nil {
-		return err
-	}
-	return callMethodExact(router, "Handle", docsPath+"/*", docsHandler)
-}
-
-func mountEchoDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
-	documentRouteHandler, err := makeEchoHTTPHandler(router, documentHandler)
-	if err != nil {
-		return err
-	}
-	docsRouteHandler, err := makeEchoHTTPHandler(router, docsHandler)
-	if err != nil {
-		return err
-	}
-	if err := callVariadicMethod(router, "GET", []any{documentPath}, []any{documentRouteHandler.Interface()}); err != nil {
-		return err
-	}
-	if err := callVariadicMethod(router, "GET", []any{docsPath}, []any{docsRouteHandler.Interface()}); err != nil {
-		return err
-	}
-	return callVariadicMethod(router, "GET", []any{docsPath + "/*"}, []any{docsRouteHandler.Interface()})
-}
-
-func mountIrisDocs(router any, docsPath, documentPath string, docsHandler, documentHandler http.Handler) error {
-	documentRouteHandler, err := makeIrisHTTPHandler(router, documentHandler)
-	if err != nil {
-		return err
-	}
-	docsRouteHandler, err := makeIrisHTTPHandler(router, docsHandler)
-	if err != nil {
-		return err
-	}
-	if err := callVariadicMethod(router, "Get", []any{documentPath}, []any{documentRouteHandler.Interface()}); err != nil {
-		return err
-	}
-	if err := callVariadicMethod(router, "Get", []any{docsPath}, []any{docsRouteHandler.Interface()}); err != nil {
-		return err
-	}
-	return callVariadicMethod(router, "Get", []any{docsPath + "/{asset:path}"}, []any{docsRouteHandler.Interface()})
-}
-func callVariadicMethod(target any, name string, fixedArgs []any, variadicArgs []any) error {
-	method := reflect.ValueOf(target).MethodByName(name)
-	if !method.IsValid() {
-		return fmt.Errorf("openapi facade: %T does not expose %s", target, name)
-	}
-	methodType := method.Type()
-	if !methodType.IsVariadic() {
-		return fmt.Errorf("openapi facade: %T.%s is not variadic", target, name)
-	}
-	if len(fixedArgs)+1 != methodType.NumIn() {
-		return fmt.Errorf("openapi facade: %T.%s signature mismatch", target, name)
-	}
-	values := make([]reflect.Value, 0, len(fixedArgs)+len(variadicArgs))
-	for index, arg := range fixedArgs {
-		value, err := assignValue(arg, methodType.In(index))
-		if err != nil {
-			return err
-		}
-		values = append(values, value)
-	}
-	variadicType := methodType.In(methodType.NumIn() - 1).Elem()
-	for _, arg := range variadicArgs {
-		value, err := assignValue(arg, variadicType)
-		if err != nil {
-			return err
-		}
-		values = append(values, value)
-	}
-	method.Call(values)
-	return nil
-}
-
-func callFiberAddMethod(router any, method, path string, handlers []any) error {
-	add := reflect.ValueOf(router).MethodByName("Add")
-	if !add.IsValid() {
-		return fmt.Errorf("openapi facade: %T does not expose Add", router)
-	}
-
-	methodArg := add.Type().In(0)
-	switch {
-	case methodArg.Kind() == reflect.String:
-		return callFiberMethod(router, "Add", []any{method, path}, handlers)
-	case methodArg.Kind() == reflect.Slice && methodArg.Elem().Kind() == reflect.String:
-		return callFiberMethod(router, "Add", []any{[]string{method}, path}, handlers)
-	default:
-		return fmt.Errorf("openapi facade: unsupported Fiber Add signature on %T", router)
-	}
-}
-
-func callFiberMethod(target any, name string, fixedArgs []any, variadicArgs []any) error {
-	method := reflect.ValueOf(target).MethodByName(name)
-	if !method.IsValid() {
-		return fmt.Errorf("openapi facade: %T does not expose %s", target, name)
-	}
-	methodType := method.Type()
-	if !methodType.IsVariadic() {
-		return fmt.Errorf("openapi facade: %T.%s is not variadic", target, name)
-	}
-
-	requiredArgs := methodType.NumIn() - 1
-	useFixedHandler := len(fixedArgs)+1 == requiredArgs
-	if len(fixedArgs) != requiredArgs && !useFixedHandler {
-		return fmt.Errorf("openapi facade: %T.%s signature mismatch", target, name)
-	}
-	if useFixedHandler && len(variadicArgs) == 0 {
-		return fmt.Errorf("openapi facade: %T.%s requires at least one handler", target, name)
-	}
-
-	values := make([]reflect.Value, 0, len(fixedArgs)+len(variadicArgs))
-	for index, arg := range fixedArgs {
-		value, err := assignValue(arg, methodType.In(index))
-		if err != nil {
-			return err
-		}
-		values = append(values, value)
-	}
-	if useFixedHandler {
-		value, err := assignValue(variadicArgs[0], methodType.In(len(fixedArgs)))
-		if err != nil {
-			return err
-		}
-		values = append(values, value)
-		variadicArgs = variadicArgs[1:]
-	}
-
-	variadicType := methodType.In(methodType.NumIn() - 1).Elem()
-	for _, arg := range variadicArgs {
-		value, err := assignValue(arg, variadicType)
-		if err != nil {
-			return err
-		}
-		values = append(values, value)
-	}
-
-	method.Call(values)
-	return nil
-}
-
-func callMethodExact(target any, name string, args ...any) error {
-	method := reflect.ValueOf(target).MethodByName(name)
-	if !method.IsValid() {
-		return fmt.Errorf("openapi facade: %T does not expose %s", target, name)
-	}
-	methodType := method.Type()
-	if methodType.NumIn() != len(args) {
-		return fmt.Errorf("openapi facade: %T.%s signature mismatch", target, name)
-	}
-	values := make([]reflect.Value, 0, len(args))
-	for index, arg := range args {
-		value, err := assignValue(arg, methodType.In(index))
-		if err != nil {
-			return err
-		}
-		values = append(values, value)
-	}
-	method.Call(values)
-	return nil
-}
-
-func assignValue(value any, target reflect.Type) (reflect.Value, error) {
-	reflected := reflect.ValueOf(value)
-	if !reflected.IsValid() {
-		return reflect.Zero(target), nil
-	}
-	if reflected.Type().AssignableTo(target) {
-		return reflected, nil
-	}
-	if reflected.Type().ConvertibleTo(target) {
-		return reflected.Convert(target), nil
-	}
-	return reflect.Value{}, fmt.Errorf("openapi facade: cannot use %T as %s", value, target)
-}
-
-func makeGinHandler(router any, fn func(ctx reflect.Value)) (reflect.Value, error) {
-	method := reflect.ValueOf(router).MethodByName("GET")
-	if !method.IsValid() {
-		return reflect.Value{}, fmt.Errorf("openapi facade: %T does not expose GET", router)
-	}
-	handlerType := method.Type().In(1)
-	if handlerType.Kind() == reflect.Slice {
-		handlerType = handlerType.Elem()
-	}
-	return reflect.MakeFunc(handlerType, func(args []reflect.Value) []reflect.Value {
-		fn(args[0])
-		return nil
-	}), nil
-}
-
-func makeGinHTTPHandler(router any, handler http.Handler) (reflect.Value, error) {
-	// Gin can reuse the native response writer and request directly, so docs and
-	// document handlers stay aligned with the net/http behavior.
-	return makeGinHandler(router, func(ctx reflect.Value) {
-		writer := contextField(ctx, "Writer")
-		request := contextField(ctx, "Request")
-		if !writer.IsValid() || !request.IsValid() || request.IsNil() {
-			callMethodIfPresent(ctx, "AbortWithStatus", http.StatusInternalServerError)
-			return
-		}
-		handler.ServeHTTP(writer.Interface().(http.ResponseWriter), request.Interface().(*http.Request))
-	})
-}
-
-func makeFiberHandler(router any, fn func(ctx reflect.Value) error) (reflect.Value, error) {
-	method := reflect.ValueOf(router).MethodByName("Get")
-	if !method.IsValid() {
-		return reflect.Value{}, fmt.Errorf("openapi facade: %T does not expose Get", router)
-	}
-	handlerType := method.Type().In(1)
-	if handlerType.Kind() == reflect.Slice {
-		handlerType = handlerType.Elem()
-	}
-	return reflect.MakeFunc(handlerType, func(args []reflect.Value) []reflect.Value {
-		err := fn(args[0])
-		if handlerType.NumOut() == 0 {
-			return nil
-		}
-		if err == nil {
-			return []reflect.Value{reflect.Zero(handlerType.Out(0))}
-		}
-		return []reflect.Value{reflect.ValueOf(err)}
-	}), nil
-}
-
-func makeFiberHTTPHandler(router any, handler http.Handler) (reflect.Value, error) {
-	method := reflect.ValueOf(router).MethodByName("Get")
-	if !method.IsValid() {
-		return reflect.Value{}, fmt.Errorf("openapi facade: %T does not expose Get", router)
-	}
-	handlerType := method.Type().In(1)
-	if handlerType.Kind() == reflect.Slice {
-		handlerType = handlerType.Elem()
-	}
-	if handlerType.Kind() == reflect.Interface {
-		// Fiber v3 accepts plain net/http handlers in its interface-typed route
-		// slots, so pass the docs handler through directly and let Fiber adapt it.
-		return reflect.ValueOf(handler), nil
-	}
-
-	// Fiber needs a response recorder bridge because the docs package emits
-	// standard net/http handlers while Fiber expects its own handler contract.
-	return makeFiberHandler(router, func(ctx reflect.Value) error {
-		recorder := &memoryResponseWriter{header: http.Header{}}
-		handler.ServeHTTP(recorder, &http.Request{})
-		for key, values := range recorder.header {
-			if len(values) == 0 {
-				continue
-			}
-			// Keep multi-value cookies intact while normal headers stay single-value
-			// so the Fiber facade mirrors the docs handler's net/http response shape.
-			if strings.EqualFold(key, "Set-Cookie") {
-				for _, value := range values {
-					callMethodIfPresent(ctx, "Append", key, value)
-				}
-				continue
-			}
-			callMethodIfPresent(ctx, "Set", key, values[0])
-		}
-		statusResult, ok := callMethodValue(ctx, "Status", recorder.statusOrOK())
-		if !ok {
-			return callErrorMethod(ctx, "Send", recorder.body)
-		}
-		return callErrorMethod(statusResult, "Send", recorder.body)
-	})
-}
-
-func makeEchoHandler(router any, fn func(ctx reflect.Value) error) (reflect.Value, error) {
-	method := reflect.ValueOf(router).MethodByName("GET")
-	if !method.IsValid() {
-		return reflect.Value{}, fmt.Errorf("openapi facade: %T does not expose GET", router)
-	}
-	handlerType := method.Type().In(1)
-	if handlerType.Kind() == reflect.Slice {
-		handlerType = handlerType.Elem()
-	}
-	return reflect.MakeFunc(handlerType, func(args []reflect.Value) []reflect.Value {
-		err := fn(args[0])
-		if handlerType.NumOut() == 0 {
-			return nil
-		}
-		if err == nil {
-			return []reflect.Value{reflect.Zero(handlerType.Out(0))}
-		}
-		return []reflect.Value{reflect.ValueOf(err)}
-	}), nil
-}
-
-func makeEchoHTTPHandler(router any, handler http.Handler) (reflect.Value, error) {
-	// Echo exposes the native request/response pair through its context, so the
-	// facade can replay docs handlers without a direct framework dependency.
-	return makeEchoHandler(router, func(ctx reflect.Value) error {
-		response, ok := callMethodValue(ctx, "Response")
-		if !ok {
-			return errors.New("openapi facade: echo context does not expose Response")
-		}
-		writerField := contextField(response, "Writer")
-		if !writerField.IsValid() || writerField.IsNil() {
-			return errors.New("openapi facade: echo response does not expose Writer")
-		}
-		request, ok := callMethodValue(ctx, "Request")
-		if !ok || request.IsNil() {
-			return errors.New("openapi facade: echo context does not expose Request")
-		}
-		handler.ServeHTTP(writerField.Interface().(http.ResponseWriter), request.Interface().(*http.Request))
-		return nil
-	})
-}
-
-func makeIrisHandler(router any, fn func(ctx reflect.Value)) (reflect.Value, error) {
-	method := reflect.ValueOf(router).MethodByName("Get")
-	if !method.IsValid() {
-		return reflect.Value{}, fmt.Errorf("openapi facade: %T does not expose Get", router)
-	}
-	handlerType := method.Type().In(1)
-	if handlerType.Kind() == reflect.Slice {
-		handlerType = handlerType.Elem()
-	}
-	return reflect.MakeFunc(handlerType, func(args []reflect.Value) []reflect.Value {
-		fn(args[0])
-		return nil
-	}), nil
-}
-
-func makeIrisHTTPHandler(router any, handler http.Handler) (reflect.Value, error) {
-	// Iris exposes standard request and response writer accessors, so docs can
-	// flow through the same net/http handlers used by every other adapter.
-	return makeIrisHandler(router, func(ctx reflect.Value) {
-		writer, ok := callMethodValue(ctx, "ResponseWriter")
-		if !ok || writer.IsNil() {
-			return
-		}
-		request, ok := callMethodValue(ctx, "Request")
-		if !ok || request.IsNil() {
-			return
-		}
-		handler.ServeHTTP(writer.Interface().(http.ResponseWriter), request.Interface().(*http.Request))
-	})
-}
-
-func callMethod(target reflect.Value, name string, args ...any) []reflect.Value {
-	method := target.MethodByName(name)
-	values := make([]reflect.Value, 0, len(args))
-	for index, arg := range args {
-		value, _ := assignValue(arg, method.Type().In(index))
-		values = append(values, value)
-	}
-	return method.Call(values)
-}
-
-func callMethodIfPresent(target reflect.Value, name string, args ...any) bool {
-	method := target.MethodByName(name)
-	if !method.IsValid() {
-		return false
-	}
-	values := make([]reflect.Value, 0, len(args))
-	for index, arg := range args {
-		value, err := assignValue(arg, method.Type().In(index))
-		if err != nil {
-			return false
-		}
-		values = append(values, value)
-	}
-	method.Call(values)
-	return true
-}
-
-func callMethodValue(target reflect.Value, name string, args ...any) (reflect.Value, bool) {
-	method := target.MethodByName(name)
-	if !method.IsValid() {
-		return reflect.Value{}, false
-	}
-	values := make([]reflect.Value, 0, len(args))
-	for index, arg := range args {
-		value, err := assignValue(arg, method.Type().In(index))
-		if err != nil {
-			return reflect.Value{}, false
-		}
-		values = append(values, value)
-	}
-	result := method.Call(values)
-	if len(result) == 0 {
-		return reflect.Value{}, false
-	}
-	return result[0], true
-}
-
-func callErrorMethod(target reflect.Value, name string, args ...any) error {
-	result, ok := callMethodValue(target, name, args...)
-	if !ok || result.IsNil() {
-		return nil
-	}
-	if err, ok := result.Interface().(error); ok {
-		return err
-	}
-	return nil
-}
-
-func contextField(target reflect.Value, name string) reflect.Value {
-	if target.Kind() == reflect.Pointer && !target.IsNil() {
-		if field := target.Elem().FieldByName(name); field.IsValid() {
-			return field
-		}
-	}
-	return reflect.Value{}
-}
-
-type memoryResponseWriter struct {
-	header http.Header
-	body   []byte
-	status int
-}
-
-func (w *memoryResponseWriter) Header() http.Header    { return w.header }
-func (w *memoryResponseWriter) WriteHeader(status int) { w.status = status }
-func (w *memoryResponseWriter) Write(p []byte) (int, error) {
-	w.body = append(w.body, p...)
-	return len(p), nil
-}
-func (w *memoryResponseWriter) statusOrOK() int {
-	if w.status == 0 {
-		return http.StatusOK
-	}
-	return w.status
 }

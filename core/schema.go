@@ -1,5 +1,6 @@
 package core
 
+// Schema is the OpenAPI Schema Object, modeled on JSON Schema 2020-12 (OAS 3.1/3.2).
 type Schema struct {
 	Title            string   `json:"title,omitempty"`
 	MultipleOf       *float64 `json:"multipleOf,omitempty"`
@@ -53,11 +54,13 @@ type Schema struct {
 	Extensions    map[string]any         `json:"-"`
 }
 
+// Discriminator is the OpenAPI Discriminator Object for polymorphic schemas.
 type Discriminator struct {
 	PropertyName string            `json:"propertyName"`
 	Mapping      map[string]string `json:"mapping,omitempty"`
 }
 
+// XML is the OpenAPI XML Object.
 type XML struct {
 	Name      string `json:"name,omitempty"`
 	Namespace string `json:"namespace,omitempty"`

@@ -17,6 +17,7 @@ const (
 	DefaultVersion = Version32
 )
 
+// String returns the OpenAPI version string, such as "3.2.0".
 func (v SpecVersion) String() string {
 	switch v {
 	case Version30:
@@ -38,10 +39,17 @@ func (v SpecVersion) String() string {
 //	1 = OpenAPI 3.1.1
 //	2 = OpenAPI 3.2.0 (default)
 //
-// Any other value falls back to the default, OpenAPI 3.2.0.
-func WithOpenAPIVersion(version int) Option {
+// Untyped constants (WithOpenAPIVersion(0)) and the Version30/31/32 constants
+// are both accepted. Any other value makes JSON and Snapshot return
+// ErrUnsupportedVersion instead of silently emitting a different version.
+func WithOpenAPIVersion(version SpecVersion) Option {
 	return func(api *API) {
-		api.version = SpecVersion(version)
-		api.doc.OpenAPI = api.version.String()
+		api.version = version
+		api.doc.OpenAPI = version.String()
 	}
+}
+
+// valid reports whether v is one of the supported spec versions.
+func (v SpecVersion) valid() bool {
+	return v >= Version30 && v <= Version32
 }

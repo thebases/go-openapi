@@ -1,5 +1,6 @@
 package core
 
+// Parameter is the OpenAPI Parameter Object (path, query, header, or cookie).
 type Parameter struct {
 	Name            string                         `json:"name"`
 	In              string                         `json:"in"`
@@ -16,6 +17,7 @@ type Parameter struct {
 	Extensions      map[string]any                 `json:"-"`
 }
 
+// RequestBody is the OpenAPI Request Body Object.
 type RequestBody struct {
 	Description string               `json:"description,omitempty"`
 	Content     map[string]MediaType `json:"content"`
@@ -23,6 +25,7 @@ type RequestBody struct {
 	Extensions  map[string]any       `json:"-"`
 }
 
+// MediaType is the OpenAPI Media Type Object.
 type MediaType struct {
 	Schema     *SchemaOrReference             `json:"schema,omitempty"`
 	Example    any                            `json:"example,omitempty"`
@@ -31,6 +34,7 @@ type MediaType struct {
 	Extensions map[string]any                 `json:"-"`
 }
 
+// Response is the OpenAPI Response Object.
 type Response struct {
 	Description string               `json:"description"`
 	Headers     map[string]any       `json:"headers,omitempty"`

@@ -1,5 +1,6 @@
 package core
 
+// Components is the OpenAPI Components Object: reusable schemas, parameters, responses, and more.
 type Components struct {
 	Schemas         map[string]*SchemaOrReference         `json:"schemas,omitempty"`
 	Responses       map[string]*ResponseOrReference       `json:"responses,omitempty"`
